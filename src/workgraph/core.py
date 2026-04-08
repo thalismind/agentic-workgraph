@@ -333,17 +333,30 @@ def _referenced_node_payloads(func: Callable[..., Any]) -> list[dict[str, Any]]:
 
 
 def trace_workflow(workflow_def: WorkflowDefinition, *args: Any, **kwargs: Any) -> tuple[GraphSpec, list[NodeCall]]:
-    bool_mode = workflow_def.trace_branches != "falsy"
+    primary_bool_mode = workflow_def.trace_branches != "falsy"
+    trace_state = _trace_pass(workflow_def, *args, bool_mode=primary_bool_mode, **kwargs)
+
+    graph = _build_graph_spec(workflow_def, trace_state)
+    if workflow_def.trace_branches == "all":
+        alternate_state = _trace_pass(workflow_def, *args, bool_mode=False, **kwargs)
+        graph = _merge_graph_specs(graph, _build_graph_spec(workflow_def, alternate_state))
+        graph.warnings.append(
+            "trace_branches='all' merged truthy and falsy graph paths; execution still follows the primary trace plan."
+        )
+    return graph, trace_state.calls
+
+
+def _trace_pass(workflow_def: WorkflowDefinition, *args: Any, bool_mode: bool, **kwargs: Any) -> TraceState:
     trace_state = TraceState(workflow=workflow_def, bool_mode=bool_mode)
     token = _TRACE_STATE.set(trace_state)
     try:
         workflow_def(*args, **kwargs)
     finally:
         _TRACE_STATE.reset(token)
+    return trace_state
 
-    if workflow_def.trace_branches == "all":
-        trace_state.warnings.append("trace_branches='all' is not fully implemented yet; tracing the truthy path.")
 
+def _build_graph_spec(workflow_def: WorkflowDefinition, trace_state: TraceState) -> GraphSpec:
     nodes = [
         NodeSpec(
             instance_id=call.instance_id,
@@ -369,7 +382,32 @@ def trace_workflow(workflow_def: WorkflowDefinition, *args: Any, **kwargs: Any) 
         edges=edges,
         warnings=trace_state.warnings,
     )
-    return graph, trace_state.calls
+    return graph
+
+
+def _merge_graph_specs(primary: GraphSpec, alternate: GraphSpec) -> GraphSpec:
+    merged_nodes: dict[str, NodeSpec] = {node.instance_id: node for node in primary.nodes}
+    for node in alternate.nodes:
+        merged_nodes.setdefault(node.instance_id, node)
+
+    merged_edges: dict[tuple[str, str], EdgeSpec] = {
+        (edge.from_node, edge.to_node): edge for edge in primary.edges
+    }
+    for edge in alternate.edges:
+        merged_edges.setdefault((edge.from_node, edge.to_node), edge)
+
+    warnings = list(primary.warnings)
+    for warning in alternate.warnings:
+        if warning not in warnings:
+            warnings.append(warning)
+
+    return primary.model_copy(
+        update={
+            "nodes": list(merged_nodes.values()),
+            "edges": list(merged_edges.values()),
+            "warnings": warnings,
+        }
+    )
 
 
 async def _validate_output(node_def: NodeDefinition, result: Any) -> Any:

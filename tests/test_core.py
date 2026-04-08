@@ -217,8 +217,9 @@ async def test_trace_branch_modes_record_warnings():
 
     assert [node.node_id for node in truthy_graph.nodes] == ["branch_source", "branch_true"]
     assert [node.node_id for node in falsy_graph.nodes] == ["branch_source", "branch_false"]
+    assert [node.node_id for node in all_graph.nodes] == ["branch_source", "branch_true", "branch_false"]
     assert any("Boolean condition on traced node" in warning for warning in truthy_graph.warnings)
-    assert any("trace_branches='all'" in warning for warning in all_graph.warnings)
+    assert any("merged truthy and falsy graph paths" in warning for warning in all_graph.warnings)
 
 
 @node(id="looped")
