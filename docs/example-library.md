@@ -47,3 +47,13 @@ Shows coordination through the per-run scratchpad.
 - one final node reads shared context back out
 
 This is the closest thing to a multi-agent collaboration pattern in the current v1 shape.
+
+### `example-live-weather-capture`
+
+Shows a real-world workflow that crosses the boundary from in-memory orchestration into external effects.
+
+- one node fetches live weather data over HTTP from a public API
+- one node launches a real browser and captures a screenshot of a weather site
+- the workflow writes the screenshot to disk and returns an artifact summary
+
+This is the example to use when you want to prove the framework can coordinate actual I/O instead of only mock or LLM-shaped work.

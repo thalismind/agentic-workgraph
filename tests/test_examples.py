@@ -3,7 +3,7 @@ from __future__ import annotations
 from workgraph import trace_workflow
 from workgraph.testing import MockLLM, run_test
 
-from examples.workflows import EXAMPLE_WORKFLOWS, conditional_review, fanout_research, iterative_refinement
+from examples.workflows import EXAMPLE_WORKFLOWS, conditional_review, fanout_research, iterative_refinement, live_weather_capture
 
 
 async def test_example_workflows_trace():
@@ -14,6 +14,7 @@ async def test_example_workflows_trace():
         "example-fanout-research",
         "example-conditional-review",
         "example-iterative-refinement",
+        "example-live-weather-capture",
         "example-scratchpad-collaboration",
     }
 
@@ -42,3 +43,13 @@ async def test_example_conditional_review_traces_both_paths():
 
     assert [node.node_id for node in graph.nodes] == ["draft_answer", "review_answer", "revise_answer"]
     assert any("merged truthy and falsy graph paths" in warning for warning in graph.warnings)
+
+
+async def test_example_live_weather_capture_traces_external_effect_flow():
+    graph, _ = trace_workflow(live_weather_capture)
+
+    assert [node.node_id for node in graph.nodes] == [
+        "fetch_live_weather",
+        "capture_weather_site",
+        "summarize_weather_capture",
+    ]

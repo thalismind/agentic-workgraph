@@ -42,6 +42,16 @@ This is useful for:
 
 Use `ctx.get_errors()` and resume/checkpoint behavior when a later step needs to inspect failures and decide whether to retry, skip, degrade, or merge partial outputs.
 
+### External effect workflows
+
+When a workflow needs to touch the outside world, keep the effect explicit in the node boundary.
+
+- fetch external state in one node
+- transform or validate it in a later node
+- write artifacts in a dedicated side-effect node
+
+The `example-live-weather-capture` workflow is the reference pattern for combining network reads with filesystem artifacts.
+
 ## Design Guidance
 
 - Keep node functions scalar. Let the runtime handle list mapping.
