@@ -16,12 +16,21 @@ const state = {
   streamingNodes: new Set(),
   ws: null,
   traceRefreshTimer: null,
+  launchingRun: false,
 };
 
 const $ = (id) => document.getElementById(id);
 
 async function fetchJson(path) {
   const response = await fetch(path);
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status} ${path}`);
+  }
+  return response.json();
+}
+
+async function postJson(path) {
+  const response = await fetch(path, { method: "POST" });
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status} ${path}`);
   }
@@ -65,6 +74,12 @@ function setTab(tab) {
   $("stream-tab").classList.toggle("active", tab === "stream");
   $("items-panel").classList.toggle("hidden", tab !== "items");
   $("stream-panel").classList.toggle("hidden", tab !== "stream");
+}
+
+function renderRunButton() {
+  const button = $("run-workflow-button");
+  button.disabled = !state.selectedWorkflow || state.launchingRun;
+  button.textContent = state.launchingRun ? "Starting..." : "Run Workflow";
 }
 
 function renderWorkflows() {
@@ -671,6 +686,7 @@ async function loadWorkflowHistory() {
   ]);
 
   state.graph = graphPayload;
+  renderRunButton();
   renderVersions(versionsPayload);
   renderRuns(runsPayload);
   renderGraph();
@@ -704,13 +720,33 @@ async function refresh() {
     state.selectedWorkflow = state.workflows[0].name;
   }
   renderWorkflows();
+  renderRunButton();
   await loadWorkflowHistory();
 }
 
+async function launchWorkflowRun() {
+  if (!state.selectedWorkflow || state.launchingRun) return;
+  state.launchingRun = true;
+  renderRunButton();
+  try {
+    const payload = await postJson(`/api/workflows/${state.selectedWorkflow}/runs`);
+    state.selectedVersion = null;
+    state.selectedRunId = payload.run_id;
+    state.selectedNodeId = null;
+    state.selectedItemIndex = 0;
+    await refresh();
+  } finally {
+    state.launchingRun = false;
+    renderRunButton();
+  }
+}
+
 $("refresh-button").addEventListener("click", () => refresh().catch(console.error));
+$("run-workflow-button").addEventListener("click", () => launchWorkflowRun().catch(console.error));
 $("items-tab").addEventListener("click", () => setTab("items"));
 $("stream-tab").addEventListener("click", () => setTab("stream"));
 setTab("items");
+renderRunButton();
 
 refresh().catch((error) => {
   $("detail-summary").textContent = error.message;
