@@ -48,6 +48,11 @@ function formatStarted(startedAt) {
   return new Date(startedAt).toLocaleString();
 }
 
+function formatNodeLabel(nodeId, maxLength = 20) {
+  if (nodeId.length <= maxLength) return nodeId;
+  return `${nodeId.slice(0, maxLength - 1)}…`;
+}
+
 function setActiveButton(container, activeValue) {
   for (const button of container.querySelectorAll("button")) {
     button.classList.toggle("active", button.dataset.value === activeValue);
@@ -316,12 +321,16 @@ function renderGraph() {
     rect.setAttribute("rx", "18");
     group.append(rect);
 
+    const tooltip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    tooltip.textContent = node.node_id;
+    group.append(tooltip);
+
     const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
     title.setAttribute("x", String(x + 12));
     title.setAttribute("y", String(y + 23));
     title.setAttribute("font-size", "13");
     title.setAttribute("font-weight", "700");
-    title.textContent = node.node_id;
+    title.textContent = formatNodeLabel(node.node_id);
     group.append(title);
 
     if (streaming) {
