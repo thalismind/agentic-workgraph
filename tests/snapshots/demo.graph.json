@@ -1,0 +1,47 @@
+{
+  "edges": [
+    [
+      "fetch_0",
+      "summarize_0"
+    ],
+    [
+      "summarize_0",
+      "synthesize_0"
+    ]
+  ],
+  "nodes": [
+    {
+      "concurrency": null,
+      "depends_on": [],
+      "instance_id": "fetch_0",
+      "item_retries": 0,
+      "node_id": "fetch",
+      "output_schema": null,
+      "retries": 0
+    },
+    {
+      "concurrency": 2,
+      "depends_on": [
+        "fetch_0"
+      ],
+      "instance_id": "summarize_0",
+      "item_retries": 0,
+      "node_id": "summarize",
+      "output_schema": "Summary",
+      "retries": 0
+    },
+    {
+      "concurrency": null,
+      "depends_on": [
+        "summarize_0"
+      ],
+      "instance_id": "synthesize_0",
+      "item_retries": 0,
+      "node_id": "synthesize",
+      "output_schema": null,
+      "retries": 0
+    }
+  ],
+  "version": "b6caa2d0eb96",
+  "workflow": "demo"
+}

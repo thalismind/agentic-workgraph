@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from workgraph import Executor, VersionMismatchError, get_version, list_versions, node, trace_workflow, workflow
+from workgraph import (
+    Executor,
+    VersionMismatchError,
+    assert_graph_snapshot,
+    get_version,
+    list_versions,
+    node,
+    trace_workflow,
+    workflow,
+)
 from workgraph.store import InMemoryStore
 
 
@@ -43,6 +52,10 @@ async def test_trace_workflow_builds_linear_graph():
         {"from": "summarize_0", "to": "synthesize_0"},
     ]
     assert [call.instance_id for call in calls] == ["fetch_0", "summarize_0", "synthesize_0"]
+
+
+def test_demo_graph_snapshot():
+    assert_graph_snapshot(demo, snapshot_path="tests/snapshots/demo.graph.json")
 
 
 async def test_executor_maps_lists_between_nodes():

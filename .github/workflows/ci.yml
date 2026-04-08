@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Run main test suite
+        run: python -m pytest -q
+
+      - name: Run reproducible property tests
+        run: python -m pytest tests/test_property.py -q --hypothesis-seed=0
+
+      - name: Verify graph snapshots are clean
+        run: |
+          python -m pytest tests/test_core.py -q -k snapshot
+          git diff --exit-code -- tests/snapshots
+
+      - name: Build package
+        run: python -m build --wheel
