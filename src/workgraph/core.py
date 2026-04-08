@@ -107,6 +107,7 @@ class WorkflowDefinition:
     name: str
     default_model: str | None = None
     redis_url: str | None = None
+    redis_ttl_days: int = 7
     stream_delay_ms: int = 50
     stream_max_messages: int = 500
     stream_ttl_hours: int = 24
@@ -235,6 +236,7 @@ def workflow(
     name: str | None = None,
     default_model: str | None = None,
     redis_url: str | None = None,
+    redis_ttl_days: int = 7,
     stream_delay_ms: int = 50,
     stream_max_messages: int = 500,
     stream_ttl_hours: int = 24,
@@ -247,6 +249,7 @@ def workflow(
             name=name or func.__name__,
             default_model=default_model,
             redis_url=redis_url,
+            redis_ttl_days=redis_ttl_days,
             stream_delay_ms=stream_delay_ms,
             stream_max_messages=stream_max_messages,
             stream_ttl_hours=stream_ttl_hours,
@@ -267,6 +270,7 @@ def compute_workflow_version(workflow_def: WorkflowDefinition) -> str:
         "config": {
             "default_model": workflow_def.default_model,
             "redis_url": workflow_def.redis_url,
+            "redis_ttl_days": workflow_def.redis_ttl_days,
             "stream_delay_ms": workflow_def.stream_delay_ms,
             "stream_max_messages": workflow_def.stream_max_messages,
             "stream_ttl_hours": workflow_def.stream_ttl_hours,
@@ -560,6 +564,7 @@ async def _run_node(
     node_state: RunNodeState,
     emit_event,
     stream_max_messages: int,
+    stream_ttl_seconds: int,
     store: InMemoryStore,
     tracer,
 ) -> list[Any]:
@@ -579,6 +584,7 @@ async def _run_node(
                 item_index=item_index,
                 token=token,
                 max_messages=stream_max_messages,
+                ttl_seconds=stream_ttl_seconds,
             )
 
         return record_stream
@@ -734,6 +740,7 @@ class Executor:
                 "workgraph.workflow.version": workflow_def.version,
             },
         ) as run_span:
+            self.store.save_run(record)
             emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
 
             try:
@@ -770,6 +777,7 @@ class Executor:
                         node_state=state,
                         emit_event=emit_event,
                         stream_max_messages=workflow_def.stream_max_messages,
+                        stream_ttl_seconds=workflow_def.stream_ttl_hours * 3600,
                         store=self.store,
                         tracer=tracer,
                     )
@@ -784,6 +792,7 @@ class Executor:
                     state.counters.pending = 0
                     emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
                     emit_event(_event("node_output", run_id, node_id=call.instance_id, output=result))
+                    self.store.save_run(record)
                 record.status = RunStatus.COMPLETED
                 record.outputs = outputs
                 record.errors = error_log
@@ -804,6 +813,12 @@ class Executor:
                 emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
             finally:
                 record.finished_at = record.finished_at or datetime.now(timezone.utc)
+                self.store.save_run(record)
+                self.store.finalize_run(
+                    record,
+                    run_ttl_seconds=workflow_def.redis_ttl_days * 24 * 3600,
+                    stream_ttl_seconds=workflow_def.stream_ttl_hours * 3600,
+                )
 
         return record
 
