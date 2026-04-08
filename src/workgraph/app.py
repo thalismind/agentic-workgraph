@@ -21,9 +21,15 @@ from .models import (
 from .store import InMemoryStore, create_store
 
 
-def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url: str | None = None) -> FastAPI:
+def create_app(
+    *,
+    workflows: list,
+    store: InMemoryStore | None = None,
+    redis_url: str | None = None,
+    llm_callable=None,
+) -> FastAPI:
     store = store or create_store(redis_url)
-    executor = Executor(store=store)
+    executor = Executor(store=store, llm_callable=llm_callable)
     app = FastAPI(title="agentic-workgraph")
     app.state.executor = executor
     app.state.store = store
