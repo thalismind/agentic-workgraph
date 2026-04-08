@@ -130,6 +130,10 @@ h1 {
   justify-content: flex-end;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .pill,
 .status-pill,
 .version-chip {
