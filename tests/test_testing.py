@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -54,3 +55,60 @@ async def test_record_and_replay_trace(tmp_path: Path):
 
     assert replay.all_passed()
     assert replay.run.outputs["sample_echo_0"] == ["alpha done"]
+    assert replay.report() == "REPLAY OK"
+
+
+@pytest.mark.asyncio
+async def test_replay_trace_reports_output_divergence(tmp_path: Path):
+    mock = MockLLM()
+    mock.on("sample_echo").stream(["alpha ", "done"], "alpha done")
+
+    recording = await record_trace(sample_flow, llm=mock)
+    trace_path = tmp_path / "diverged.trace.json"
+    recording.save(str(trace_path))
+
+    payload = json.loads(trace_path.read_text())
+    payload["outputs"]["sample_echo_0"] = ["different"]
+    trace_path.write_text(json.dumps(payload))
+
+    replay = await replay_trace(sample_flow, trace_path=str(trace_path))
+
+    assert not replay.all_passed()
+    assert "outputs diverged" in replay.report()
+
+
+@pytest.mark.asyncio
+async def test_replay_trace_reports_structural_divergence(tmp_path: Path):
+    mock = MockLLM()
+    mock.on("sample_echo").stream(["alpha ", "done"], "alpha done")
+
+    recording = await record_trace(sample_flow, llm=mock)
+    trace_path = tmp_path / "structural.trace.json"
+    recording.save(str(trace_path))
+
+    payload = json.loads(trace_path.read_text())
+    payload["calls"][0]["node_id"] = "other_node"
+    trace_path.write_text(json.dumps(payload))
+
+    replay = await replay_trace(sample_flow, trace_path=str(trace_path), mode="structural")
+
+    assert not replay.all_passed()
+    assert "call order diverged" in replay.report()
+
+
+@pytest.mark.asyncio
+async def test_replay_trace_inputs_only_ignores_output_differences(tmp_path: Path):
+    mock = MockLLM()
+    mock.on("sample_echo").stream(["alpha ", "done"], "alpha done")
+
+    recording = await record_trace(sample_flow, llm=mock)
+    trace_path = tmp_path / "inputs_only.trace.json"
+    recording.save(str(trace_path))
+
+    payload = json.loads(trace_path.read_text())
+    payload["outputs"]["sample_echo_0"] = ["different"]
+    trace_path.write_text(json.dumps(payload))
+
+    replay = await replay_trace(sample_flow, trace_path=str(trace_path), mode="inputs_only")
+
+    assert replay.all_passed()

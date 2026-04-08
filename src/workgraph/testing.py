@@ -54,6 +54,7 @@ class MockLLM:
     def __init__(self) -> None:
         self.behaviors: dict[str, deque[tuple[str, Any]]] = defaultdict(deque)
         self.calls: dict[str, list[MockCall]] = defaultdict(list)
+        self.call_order: list[MockCall] = []
 
     def on(self, node_id: str) -> _NodeMock:
         return _NodeMock(self, node_id)
@@ -64,6 +65,7 @@ class MockLLM:
     async def __call__(self, *, prompt: str, node_id: str, **kwargs: Any) -> Any:
         call = MockCall(node_id=node_id, prompt=prompt, params=kwargs)
         self.calls[node_id].append(call)
+        self.call_order.append(call)
         behavior_queue = self.behaviors[node_id] or self.behaviors["*"]
         if not behavior_queue:
             raise RuntimeError(f"No mock response configured for node '{node_id}'")
@@ -173,9 +175,17 @@ class ReplayResult:
     recording: TraceRecording
     run: Any
     differences: list[str]
+    mode: str
 
     def all_passed(self) -> bool:
         return not self.differences
+
+    def report(self) -> str:
+        if not self.differences:
+            return "REPLAY OK"
+        lines = ["REPLAY DIVERGENCE:"]
+        lines.extend(f"  - {difference}" for difference in self.differences)
+        return "\n".join(lines)
 
 
 class RecordingLLM:
@@ -286,14 +296,35 @@ async def replay_trace(workflow_def, *, trace_path: str, mode: str = "strict"):
     )
     differences: list[str] = []
     replay_outputs = _json_safe(run.outputs)
-    if mode == "strict" and replay_outputs != recording.outputs:
-        differences.append("outputs diverged")
-    elif mode == "structural":
-        recorded_nodes = [call.node_id for call in recording.calls]
-        replay_nodes = [call.node_id for calls in mock.calls.values() for call in calls]
-        if replay_nodes != recorded_nodes:
-            differences.append("call order diverged")
-    return ReplayResult(recording=recording, run=run, differences=differences)
+    recorded_nodes = [call.node_id for call in recording.calls]
+    replay_nodes = [call.node_id for call in mock.call_order]
+
+    if replay_nodes != recorded_nodes:
+        differences.append(f"call order diverged: recorded={recorded_nodes} replayed={replay_nodes}")
+
+    for index, recorded_call in enumerate(recording.calls):
+        if index >= len(mock.call_order):
+            break
+        replay_call = mock.call_order[index]
+        if recorded_call.prompt != replay_call.prompt:
+            differences.append(
+                f"prompt diverged at call {index} ({recorded_call.node_id}): "
+                f"recorded={recorded_call.prompt!r} replayed={replay_call.prompt!r}"
+            )
+        if recorded_call.params != _json_safe(replay_call.params):
+            differences.append(
+                f"params diverged at call {index} ({recorded_call.node_id})"
+            )
+
+    if mode == "strict":
+        if replay_outputs != recording.outputs:
+            differences.append(f"outputs diverged: recorded={recording.outputs!r} replayed={replay_outputs!r}")
+        if str(run.status) != recording.status:
+            differences.append(f"status diverged: recorded={recording.status} replayed={run.status}")
+    elif mode == "inputs_only":
+        differences = []
+
+    return ReplayResult(recording=recording, run=run, differences=differences, mode=mode)
 
 
 def assert_graph_snapshot(workflow, *, snapshot_path: str) -> None:
