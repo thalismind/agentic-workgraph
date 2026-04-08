@@ -39,6 +39,19 @@ async def test_mock_llm_retries_with_validation_feedback():
     assert run.outputs["ask-model_0"][0].answer == "final"
 
 
+async def test_mock_llm_can_stream_tokens():
+    mock = MockLLM()
+    mock.on("ask-model").stream(
+        ["Let ", "me ", "think"],
+        {"answer": "streamed", "confidence": 0.8},
+    )
+
+    run = await run_test(mocked_flow, llm=mock)
+
+    assert run.status == "completed"
+    assert run.outputs["ask-model_0"][0].answer == "streamed"
+
+
 def test_graph_snapshot_round_trip(tmp_path):
     snapshot_path = tmp_path / "snapshots" / "mocked-flow.graph.json"
 

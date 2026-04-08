@@ -106,6 +106,17 @@ class ItemRecord(BaseModel):
     progress: float = 0.0
 
 
+class StreamChunk(BaseModel):
+    index: int
+    token: str
+    ts: int
+
+
+class StreamEnvelope(BaseModel):
+    tokens: list[str]
+    response: Any
+
+
 class RunNodeState(BaseModel):
     status: NodeStatus = NodeStatus.PENDING
     counters: NodeCounters = Field(default_factory=NodeCounters)

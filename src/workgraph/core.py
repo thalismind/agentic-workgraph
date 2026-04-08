@@ -13,6 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import ValidationError
+from opentelemetry.trace import Status, StatusCode
 
 from .context import Context, Scratchpad
 from .errors import VersionMismatchError
@@ -32,6 +33,7 @@ from .models import (
     ValidationFailStrategy,
 )
 from .store import InMemoryStore
+from .tracing import Telemetry
 
 
 _TRACE_STATE: ContextVar["TraceState | None"] = ContextVar("workgraph_trace_state", default=None)
@@ -96,6 +98,10 @@ class WorkflowDefinition:
     default_model: str | None = None
     redis_url: str | None = None
     stream_delay_ms: int = 50
+    stream_max_messages: int = 500
+    stream_ttl_hours: int = 24
+    otel_endpoint: str | None = None
+    otel_service_name: str = "workgraph"
     version: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -220,6 +226,10 @@ def workflow(
     default_model: str | None = None,
     redis_url: str | None = None,
     stream_delay_ms: int = 50,
+    stream_max_messages: int = 500,
+    stream_ttl_hours: int = 24,
+    otel_endpoint: str | None = None,
+    otel_service_name: str = "workgraph",
 ):
     def decorator(func: Callable[..., Any]):
         wf = WorkflowDefinition(
@@ -228,6 +238,10 @@ def workflow(
             default_model=default_model,
             redis_url=redis_url,
             stream_delay_ms=stream_delay_ms,
+            stream_max_messages=stream_max_messages,
+            stream_ttl_hours=stream_ttl_hours,
+            otel_endpoint=otel_endpoint,
+            otel_service_name=otel_service_name,
         )
         functools.update_wrapper(wf, func)
         wf._workflow_def = wf  # type: ignore[attr-defined]
@@ -244,6 +258,10 @@ def compute_workflow_version(workflow_def: WorkflowDefinition) -> str:
             "default_model": workflow_def.default_model,
             "redis_url": workflow_def.redis_url,
             "stream_delay_ms": workflow_def.stream_delay_ms,
+            "stream_max_messages": workflow_def.stream_max_messages,
+            "stream_ttl_hours": workflow_def.stream_ttl_hours,
+            "otel_endpoint": workflow_def.otel_endpoint,
+            "otel_service_name": workflow_def.otel_service_name,
         },
         "nodes": sorted(_referenced_node_payloads(workflow_def.func), key=lambda item: item["node_id"]),
     }
@@ -330,6 +348,8 @@ async def _run_one_item(
     item_record: ItemRecord,
     counters: NodeCounters,
     emit_event,
+    record_stream,
+    tracer,
 ) -> Any:
     attempts = node_def.item_retries + 1
     last_error: Exception | None = None
@@ -348,36 +368,56 @@ async def _run_one_item(
                 counters=counters.model_dump(),
             )
         )
-        ctx = Context(
-            run_id=run_id,
-            node_id=node_def.node_id,
-            item_index=item_index,
-            llm_callable=llm_callable,
-            scratchpad=scratchpad,
-            errors=error_log,
-            validation_feedback=validation_feedback,
-        )
         try:
-            call = node_def.func(item, ctx=ctx, **extra_args)
-            result = await asyncio.wait_for(call, timeout=node_def.timeout) if node_def.timeout else await call
-            validated = await _validate_output(node_def, result)
-            item_record.output = validated
-            item_record.status = ItemStatus.COMPLETED
-            counters.completed += 1
-            emit_event(
-                _event(
-                    "node_counters",
-                    run_id,
+            with tracer.start_as_current_span(
+                node_def.node_id,
+                attributes={
+                    "workgraph.run.id": run_id,
+                    "workgraph.node.id": node_def.node_id,
+                    "workgraph.node.instance_id": node_instance_id,
+                    "workgraph.node.attempt": attempt,
+                    "workgraph.item.index": item_index,
+                },
+            ) as span:
+                ctx = Context(
+                    run_id=run_id,
                     node_id=node_instance_id,
+                    node_name=node_def.node_id,
                     item_index=item_index,
-                    counters=counters.model_dump(),
+                    llm_callable=llm_callable,
+                    scratchpad=scratchpad,
+                    errors=error_log,
+                    validation_feedback=validation_feedback,
+                    emit_event=emit_event,
+                    record_stream=record_stream,
+                    tracer=tracer,
                 )
-            )
-            return validated
+                call = node_def.func(item, ctx=ctx, **extra_args)
+                result = await asyncio.wait_for(call, timeout=node_def.timeout) if node_def.timeout else await call
+                validated = await _validate_output(node_def, result)
+                item_record.output = validated
+                item_record.status = ItemStatus.COMPLETED
+                counters.completed += 1
+                span.set_attribute("workgraph.node.status", "ok")
+                span.set_attribute("workgraph.validation.passed", True)
+                emit_event(
+                    _event(
+                        "node_counters",
+                        run_id,
+                        node_id=node_instance_id,
+                        item_index=item_index,
+                        counters=counters.model_dump(),
+                    )
+                )
+                return validated
         except ValidationError as exc:
             last_error = exc
             validation_feedback = _format_validation_feedback(exc)
             item_record.errors.append(str(exc))
+            span.set_attribute("workgraph.node.status", "error")
+            span.set_attribute("workgraph.validation.passed", False)
+            span.set_attribute("workgraph.validation.errors", json.dumps(exc.errors(include_url=False)))
+            span.set_status(Status(StatusCode.ERROR, str(exc)))
             error_log.append(
                 NodeError(
                     run_id=run_id,
@@ -404,6 +444,8 @@ async def _run_one_item(
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             item_record.errors.append(str(exc))
+            span.set_attribute("workgraph.node.status", "error")
+            span.set_status(Status(StatusCode.ERROR, str(exc)))
             error_log.append(
                 NodeError(
                     run_id=run_id,
@@ -481,6 +523,9 @@ async def _run_node(
     error_log: list[NodeError],
     node_state: RunNodeState,
     emit_event,
+    stream_max_messages: int,
+    store: InMemoryStore,
+    tracer,
 ) -> list[Any]:
     node_def = call.node_def
     item_param = next(iter(node_def.signature.parameters))
@@ -489,6 +534,18 @@ async def _run_node(
         raise TypeError(f"Node {node_def.node_id} expected list input for '{item_param}'")
     if not node_state.items:
         node_state.items = [ItemRecord(index=index, input=item) for index, item in enumerate(items)]
+
+    def make_stream_recorder(item_index: int):
+        def record_stream(token: str, _item_index: int) -> dict[str, Any]:
+            return store.append_stream_chunk(
+                run_id=run_id,
+                node_id=call.instance_id,
+                item_index=item_index,
+                token=token,
+                max_messages=stream_max_messages,
+            )
+
+        return record_stream
 
     if node_def.concurrency == 1:
         results = []
@@ -507,6 +564,8 @@ async def _run_node(
                     item_record=node_state.items[index],
                     counters=node_state.counters,
                     emit_event=emit_event,
+                    record_stream=make_stream_recorder(index),
+                    tracer=tracer,
                 )
             )
         return _flatten_results(results)
@@ -528,6 +587,8 @@ async def _run_node(
                 item_record=node_state.items[index],
                 counters=node_state.counters,
                 emit_event=emit_event,
+                record_stream=make_stream_recorder(index),
+                tracer=tracer,
             )
         async with semaphore:
             return await _run_one_item(
@@ -543,6 +604,8 @@ async def _run_node(
                 item_record=node_state.items[index],
                 counters=node_state.counters,
                 emit_event=emit_event,
+                record_stream=make_stream_recorder(index),
+                tracer=tracer,
             )
 
     results = list(await asyncio.gather(*(run_guarded(index, item) for index, item in enumerate(items))))
@@ -563,6 +626,7 @@ class Executor:
     def __init__(self, *, store: InMemoryStore | None = None, llm_callable=None) -> None:
         self.store = store or _DEFAULT_STORE
         self.llm_callable = llm_callable or _default_llm
+        self.telemetry = Telemetry(self.store)
 
     async def run(
         self,
@@ -596,6 +660,8 @@ class Executor:
         run_id_override: str | None = None,
     ) -> RunRecord:
         self.store.register_workflow(workflow_def)
+        self.telemetry = Telemetry(self.store, service_name=workflow_def.otel_service_name)
+        tracer = self.telemetry.get_tracer()
         graph, calls = trace_workflow(workflow_def, *args, **kwargs)
         if existing_run is None:
             run_id = run_id_override or uuid4().hex[:12]
@@ -624,63 +690,77 @@ class Executor:
         scratchpad = Scratchpad()
         error_log: list[NodeError] = list(record.errors)
         emit_event = lambda event: self.store.publish_event(run_id, event)
-        emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
+        with tracer.start_as_current_span(
+            workflow_def.name,
+            attributes={
+                "workgraph.run.id": run_id,
+                "workgraph.workflow.name": workflow_def.name,
+                "workgraph.workflow.version": workflow_def.version,
+            },
+        ) as run_span:
+            emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
 
-        try:
-            for call in calls:
+            try:
+                for call in calls:
+                    state = record.nodes[call.instance_id]
+                    if state.status is NodeStatus.COMPLETED and state.checkpoint is not None:
+                        outputs[call.instance_id] = state.checkpoint
+                        record.outputs[call.instance_id] = state.checkpoint
+                        continue
+                    state.status = NodeStatus.RUNNING
+                    emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
+                    state.errors = []
+                    materialized = {key: _materialize_arg(value, outputs) for key, value in call.bound_args.items()}
+                    item_param = next(iter(call.node_def.signature.parameters))
+                    items = materialized[item_param]
+                    state.counters = NodeCounters(
+                        total=len(items),
+                        pending=len(items),
+                        running=0,
+                        completed=0,
+                        failed=0,
+                    )
+                    state.items = [ItemRecord(index=index, input=item) for index, item in enumerate(items)]
+                    result = await _run_node(
+                        call,
+                        materialized_args=materialized,
+                        run_id=run_id,
+                        llm_callable=self.llm_callable,
+                        scratchpad=scratchpad,
+                        error_log=error_log,
+                        node_state=state,
+                        emit_event=emit_event,
+                        stream_max_messages=workflow_def.stream_max_messages,
+                        store=self.store,
+                        tracer=tracer,
+                    )
+                    outputs[call.instance_id] = result
+                    record.outputs[call.instance_id] = result
+                    state.output = result
+                    state.checkpoint = result
+                    state.status = NodeStatus.COMPLETED
+                    state.counters.completed = state.counters.total
+                    state.counters.pending = 0
+                    emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
+                    emit_event(_event("node_output", run_id, node_id=call.instance_id, output=result))
+                record.status = RunStatus.COMPLETED
+                record.outputs = outputs
+                record.errors = error_log
+                run_span.set_attribute("workgraph.run.status", "ok")
+                emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
+            except Exception as exc:  # noqa: BLE001
+                record.status = RunStatus.FAILED
                 state = record.nodes[call.instance_id]
-                if state.status is NodeStatus.COMPLETED and state.checkpoint is not None:
-                    outputs[call.instance_id] = state.checkpoint
-                    record.outputs[call.instance_id] = state.checkpoint
-                    continue
-                state.status = NodeStatus.RUNNING
+                state.status = NodeStatus.FAILED
+                state.errors.append(str(exc))
+                record.outputs = outputs
+                record.errors = error_log
+                run_span.set_attribute("workgraph.run.status", "error")
+                run_span.set_status(Status(StatusCode.ERROR, str(exc)))
                 emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
-                state.errors = []
-                materialized = {key: _materialize_arg(value, outputs) for key, value in call.bound_args.items()}
-                item_param = next(iter(call.node_def.signature.parameters))
-                items = materialized[item_param]
-                state.counters = NodeCounters(
-                    total=len(items),
-                    pending=len(items),
-                    running=0,
-                    completed=0,
-                    failed=0,
-                )
-                state.items = [ItemRecord(index=index, input=item) for index, item in enumerate(items)]
-                result = await _run_node(
-                    call,
-                    materialized_args=materialized,
-                    run_id=run_id,
-                    llm_callable=self.llm_callable,
-                    scratchpad=scratchpad,
-                    error_log=error_log,
-                    node_state=state,
-                    emit_event=emit_event,
-                )
-                outputs[call.instance_id] = result
-                record.outputs[call.instance_id] = result
-                state.output = result
-                state.checkpoint = result
-                state.status = NodeStatus.COMPLETED
-                state.counters.completed = state.counters.total
-                state.counters.pending = 0
-                emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
-                emit_event(_event("node_output", run_id, node_id=call.instance_id, output=result))
-            record.status = RunStatus.COMPLETED
-            record.outputs = outputs
-            record.errors = error_log
-            emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
-        except Exception as exc:  # noqa: BLE001
-            record.status = RunStatus.FAILED
-            state = record.nodes[call.instance_id]
-            state.status = NodeStatus.FAILED
-            state.errors.append(str(exc))
-            record.outputs = outputs
-            record.errors = error_log
-            emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
-            emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
-        finally:
-            record.finished_at = record.finished_at or datetime.now(timezone.utc)
+                emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
+            finally:
+                record.finished_at = record.finished_at or datetime.now(timezone.utc)
 
         return record
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import defaultdict
+from typing import Any
 
 from .models import RunRecord
 
@@ -15,6 +17,8 @@ class InMemoryStore:
         self.workflows: dict[str, object] = {}
         self.event_subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
         self.event_history: dict[str, list[dict]] = defaultdict(list)
+        self.stream_records: dict[tuple[str, str, int], list[dict]] = defaultdict(list)
+        self.trace_spans: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     def add_run(self, run: RunRecord) -> None:
         self.runs[run.run_id] = run
@@ -60,3 +64,31 @@ class InMemoryStore:
         subscribers = self.event_subscribers.get(run_id, [])
         if queue in subscribers:
             subscribers.remove(queue)
+
+    def append_stream_chunk(
+        self,
+        *,
+        run_id: str,
+        node_id: str,
+        item_index: int,
+        token: str,
+        max_messages: int,
+    ) -> dict:
+        key = (run_id, node_id, item_index)
+        records = self.stream_records[key]
+        entry = {"index": len(records), "token": token, "ts": int(time.time() * 1000)}
+        records.append(entry)
+        if len(records) > max_messages:
+            original_count = len(records)
+            kept = records[-max_messages:]
+            records[:] = [{"_truncated": True, "original_count": original_count, "kept": max_messages}, *kept]
+        return entry
+
+    def get_stream(self, run_id: str, node_id: str, item_index: int) -> list[dict]:
+        return list(self.stream_records.get((run_id, node_id, item_index), []))
+
+    def add_span(self, run_id: str, span: dict[str, Any]) -> None:
+        self.trace_spans[run_id].append(span)
+
+    def get_spans(self, run_id: str) -> list[dict[str, Any]]:
+        return list(self.trace_spans.get(run_id, []))

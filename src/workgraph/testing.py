@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .core import Executor, trace_workflow
+from .models import StreamEnvelope
 from .store import InMemoryStore
 
 
@@ -36,6 +37,14 @@ class _NodeMock:
     def raise_error(self, exc: Exception) -> None:
         self.mock_llm.behaviors[self.node_id] = deque([("error", exc)])
 
+    def stream(self, tokens: list[str], response: Any) -> None:
+        self.mock_llm.behaviors[self.node_id] = deque([("stream", StreamEnvelope(tokens=tokens, response=response))])
+
+    def stream_sequence(self, values: list[tuple[list[str], Any]]) -> None:
+        self.mock_llm.behaviors[self.node_id] = deque(
+            ("stream", StreamEnvelope(tokens=tokens, response=response)) for tokens, response in values
+        )
+
 
 class MockLLM:
     def __init__(self) -> None:
@@ -58,6 +67,8 @@ class MockLLM:
             raise payload
         if behavior_type == "callback":
             response = payload(prompt=prompt, node_id=node_id, **kwargs)
+        elif behavior_type == "stream":
+            response = payload
         else:
             response = payload
         call.response = response

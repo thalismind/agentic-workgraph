@@ -5,6 +5,7 @@ import asyncio
 from fastapi.testclient import TestClient
 
 from workgraph import create_app, node, workflow
+from workgraph.testing import MockLLM
 from workgraph.store import InMemoryStore
 
 
@@ -72,6 +73,16 @@ def slow_flow():
     return slow_hello(name=["world"])
 
 
+@node(id="stream_hello")
+async def stream_hello(name: str, ctx):
+    return await ctx.llm(prompt=f"hello {name}")
+
+
+@workflow(name="stream-flow")
+def stream_flow():
+    return stream_hello(name=["world"])
+
+
 def test_run_emits_event_history():
     store = InMemoryStore()
     app = create_app(workflows=[slow_flow], store=store)
@@ -87,3 +98,35 @@ def test_run_emits_event_history():
     assert "node_output" in event_names
     assert events[-1]["event"] == "run_status"
     assert events[-1]["status"] == "completed"
+
+
+def test_stream_events_and_recording():
+    mock = MockLLM()
+    mock.on("stream_hello").stream(["slow ", "hello ", "world"], "slow hello world")
+    store = InMemoryStore()
+    app = create_app(workflows=[stream_flow], store=store)
+    app.state.executor.llm_callable = mock
+    client = TestClient(app)
+
+    response = client.post("/api/workflows/stream-flow/runs?run_id=stream-run")
+    assert response.status_code == 200
+
+    events = store.event_history["stream-run"]
+    stream_events = [event for event in events if event["event"] == "node_stream"]
+    assert [event["token"] for event in stream_events] == ["slow ", "hello ", "world"]
+    assert any(event["event"] == "node_stream_end" for event in events)
+
+    stream = client.get("/api/runs/stream-run/nodes/stream_hello_0/items/0/stream")
+    assert stream.status_code == 200
+    assert [entry["token"] for entry in stream.json()] == ["slow ", "hello ", "world"]
+
+    trace = client.get("/api/runs/stream-run/trace")
+    assert trace.status_code == 200
+    spans = trace.json()
+    span_names = [span["name"] for span in spans]
+    assert "stream-flow" in span_names
+    assert "stream_hello" in span_names
+    assert "llm.complete" in span_names
+    llm_span = next(span for span in spans if span["name"] == "llm.complete")
+    assert llm_span["attributes"]["workgraph.run.id"] == "stream-run"
+    assert llm_span["attributes"]["workgraph.node.instance_id"] == "stream_hello_0"

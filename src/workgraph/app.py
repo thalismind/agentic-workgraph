@@ -10,6 +10,8 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None) -> FastAP
     store = store or InMemoryStore()
     executor = Executor(store=store)
     app = FastAPI(title="agentic-workgraph")
+    app.state.executor = executor
+    app.state.store = store
     workflow_map = {workflow.name: workflow for workflow in workflows}
     for workflow in workflows:
         store.register_workflow(workflow)
@@ -64,6 +66,10 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None) -> FastAP
             raise HTTPException(status_code=404, detail="run not found") from exc
         return run.model_dump(mode="json")
 
+    @app.get("/api/runs/{run_id}/trace")
+    async def get_run_trace(run_id: str):
+        return store.get_spans(run_id)
+
     @app.get("/api/runs/{run_id}/errors")
     async def get_run_errors(run_id: str):
         try:
@@ -93,6 +99,10 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None) -> FastAP
         except IndexError as exc:
             raise HTTPException(status_code=404, detail="item not found") from exc
         return item.model_dump(mode="json")
+
+    @app.get("/api/runs/{run_id}/nodes/{node_id}/items/{index}/stream")
+    async def get_node_item_stream(run_id: str, node_id: str, index: int):
+        return store.get_stream(run_id, node_id, index)
 
     @app.websocket("/api/runs/{run_id}/ws")
     async def run_events(run_id: str, websocket: WebSocket):
