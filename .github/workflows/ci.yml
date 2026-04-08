@@ -27,6 +27,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
 
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
       - name: Run main test suite
         run: python -m pytest -q
 
