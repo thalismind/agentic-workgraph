@@ -1,63 +1,56 @@
 from __future__ import annotations
 
-import json
+from pathlib import Path
 
-from pydantic import BaseModel
+import pytest
 
-from workgraph import MockLLM, assert_graph_snapshot, node, run_test, workflow
-
-
-class StructuredAnswer(BaseModel):
-    answer: str
-    confidence: float
+from workgraph import node, workflow
+from workgraph.testing import MockLLM, record_trace, replay_trace, run_test_node, test_context as make_test_context
 
 
-@node(id="ask-model", output_schema=StructuredAnswer, item_retries=1)
-async def ask_model(question: str, ctx):
-    return await ctx.llm(prompt=f"Answer this: {question}")
+@node(id="sample_echo")
+async def sample_echo(value: str, ctx):
+    return await ctx.llm(prompt=f"echo {value}")
 
 
-@workflow(name="mocked-flow")
-def mocked_flow():
-    return ask_model(question=["What is workgraph?"])
+@workflow(name="sample-flow")
+def sample_flow():
+    return sample_echo(value=["alpha"])
 
 
-async def test_mock_llm_retries_with_validation_feedback():
+@node(id="sample_double")
+async def sample_double(value: int, ctx):
+    return value * 2
+
+
+@pytest.mark.asyncio
+async def test_test_context_uses_mock_llm():
     mock = MockLLM()
-    mock.on("ask-model").respond_sequence(
-        [
-            {"answer": "draft", "confidence": "high"},
-            {"answer": "final", "confidence": 0.9},
-        ]
-    )
+    mock.on("ctx-node").respond("ok")
+    ctx = make_test_context(llm=mock, node_name="ctx-node", node_id="ctx-node_0")
 
-    run = await run_test(mocked_flow, llm=mock)
+    result = await ctx.llm(prompt="hello")
 
-    assert run.status == "completed"
-    assert mock.call_count("ask-model") == 2
-    assert "rejected by validation" in mock.last_call("ask-model").prompt
-    assert run.outputs["ask-model_0"][0].answer == "final"
+    assert result == "ok"
+    assert mock.call_count("ctx-node") == 1
 
 
-async def test_mock_llm_can_stream_tokens():
+@pytest.mark.asyncio
+async def test_run_test_node_executes_single_node():
+    outputs = await run_test_node(sample_double, items=[2, 3])
+    assert outputs == [4, 6]
+
+
+@pytest.mark.asyncio
+async def test_record_and_replay_trace(tmp_path: Path):
     mock = MockLLM()
-    mock.on("ask-model").stream(
-        ["Let ", "me ", "think"],
-        {"answer": "streamed", "confidence": 0.8},
-    )
+    mock.on("sample_echo").stream(["alpha ", "done"], "alpha done")
 
-    run = await run_test(mocked_flow, llm=mock)
+    recording = await record_trace(sample_flow, llm=mock)
+    trace_path = tmp_path / "testing.trace.json"
+    recording.save(str(trace_path))
 
-    assert run.status == "completed"
-    assert run.outputs["ask-model_0"][0].answer == "streamed"
+    replay = await replay_trace(sample_flow, trace_path=str(trace_path))
 
-
-def test_graph_snapshot_round_trip(tmp_path):
-    snapshot_path = tmp_path / "snapshots" / "mocked-flow.graph.json"
-
-    assert_graph_snapshot(mocked_flow, snapshot_path=str(snapshot_path))
-    payload = json.loads(snapshot_path.read_text())
-
-    assert payload["workflow"] == "mocked-flow"
-    assert payload["nodes"][0]["node_id"] == "ask-model"
-    assert_graph_snapshot(mocked_flow, snapshot_path=str(snapshot_path))
+    assert replay.all_passed()
+    assert replay.run.outputs["sample_echo_0"] == ["alpha done"]
