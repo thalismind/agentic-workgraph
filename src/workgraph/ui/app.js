@@ -329,6 +329,25 @@ async function refreshRunDetailData() {
   state.trace = trace;
 }
 
+async function reconcileSelectedRun(runId) {
+  if (!runId || state.selectedRunId !== runId) return;
+  await refreshRunDetailData();
+  $("detail-title").textContent = state.run.run_id;
+  $("detail-subtitle").textContent = `${state.run.workflow} · ${state.run.version}`;
+  updateRunSummary();
+  renderDetailPanels();
+  await loadNodeInspector();
+
+  if (!state.selectedWorkflow) return;
+  const runsPayload = await fetchJson(
+    `/api/workflows/${state.selectedWorkflow}/runs${
+      state.selectedVersion ? `?version=${encodeURIComponent(state.selectedVersion)}` : ""
+    }`,
+  );
+  renderRuns(runsPayload);
+  setActiveButton($("runs-list"), state.selectedRunId);
+}
+
 async function scheduleTraceRefresh(delayMs = 350) {
   if (!state.selectedRunId) return;
   stopTraceRefresh();
@@ -446,8 +465,9 @@ function connectRunSocket() {
   if (!state.selectedRunId || !["running", "pending"].includes(state.run?.status ?? "")) {
     return;
   }
+  const subscribedRunId = state.selectedRunId;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  state.ws = new WebSocket(`${protocol}//${window.location.host}/api/runs/${state.selectedRunId}/ws`);
+  state.ws = new WebSocket(`${protocol}//${window.location.host}/api/runs/${subscribedRunId}/ws`);
   state.ws.onopen = () => {
     state.wsConnected = true;
     renderWsStatus();
@@ -457,6 +477,7 @@ function connectRunSocket() {
     state.ws = null;
     state.wsConnected = false;
     renderWsStatus();
+    reconcileSelectedRun(subscribedRunId).catch(console.error);
   };
 }
 
