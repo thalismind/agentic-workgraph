@@ -26,6 +26,9 @@ def test_app_exposes_workflow_graph():
     response = client.get("/api/workflows")
     assert response.status_code == 200
     assert response.json()[0]["name"] == "hello-flow"
+    assert response.json()[0]["current_version"] == hello_flow.version
+    assert response.json()[0]["run_count"] == 0
+    assert response.json()[0]["latest_run"] is None
 
     graph = client.get("/api/workflows/hello-flow/graph")
     assert graph.status_code == 200
@@ -33,7 +36,15 @@ def test_app_exposes_workflow_graph():
 
     versions = client.get("/api/workflows/hello-flow/versions")
     assert versions.status_code == 200
-    assert versions.json()["versions"] == [hello_flow.version]
+    assert versions.json()["current_version"] == hello_flow.version
+    assert versions.json()["versions"] == [
+        {
+            "version": hello_flow.version,
+            "is_current": True,
+            "run_count": 0,
+            "latest_run": None,
+        }
+    ]
 
     run = client.post("/api/workflows/hello-flow/runs")
     assert run.status_code == 200
@@ -151,10 +162,18 @@ def test_run_history_filters_by_workflow_and_version():
     all_runs = client.get("/api/runs")
     assert all_runs.status_code == 200
     assert {run["run_id"] for run in all_runs.json()} >= {"hello-run", "stream-run-2"}
+    assert all("duration_ms" in run for run in all_runs.json())
+    assert all("error_count" in run for run in all_runs.json())
 
     hello_runs = client.get(f"/api/runs?workflow=hello-flow&version={hello_flow.version}")
     assert hello_runs.status_code == 200
     assert [run["run_id"] for run in hello_runs.json()] == ["hello-run"]
+
+    workflow_runs = client.get(f"/api/workflows/hello-flow/runs?version={hello_flow.version}")
+    assert workflow_runs.status_code == 200
+    assert workflow_runs.json()["workflow"] == "hello-flow"
+    assert workflow_runs.json()["current_version"] == hello_flow.version
+    assert [run["run_id"] for run in workflow_runs.json()["runs"]] == ["hello-run"]
 
 
 def test_resume_endpoint_reuses_checkpointed_nodes():

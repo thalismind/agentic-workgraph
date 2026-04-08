@@ -16,12 +16,42 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
     for workflow in workflows:
         store.register_workflow(workflow)
 
+    def summarize_run(run):
+        return {
+            "run_id": run.run_id,
+            "workflow": run.workflow,
+            "version": run.version,
+            "status": run.status,
+            "started_at": run.started_at,
+            "finished_at": run.finished_at,
+            "duration_ms": (
+                int((run.finished_at - run.started_at).total_seconds() * 1000)
+                if run.finished_at is not None
+                else None
+            ),
+            "error_count": len(run.errors),
+            "node_count": len(run.nodes),
+            "llm_cost_usd": 0.0,
+        }
+
     @app.get("/api/workflows")
     async def list_workflows():
         return [
             {
                 "name": workflow.name,
-                "version": workflow.version,
+                "current_version": workflow.version,
+                "version_count": len(store.list_versions(workflow.name)),
+                "run_count": len(store.list_runs(workflow=workflow.name)),
+                "latest_run": (
+                    summarize_run(
+                        sorted(
+                            store.list_runs(workflow=workflow.name),
+                            key=lambda run: run.started_at,
+                        )[-1]
+                    )
+                    if store.list_runs(workflow=workflow.name)
+                    else None
+                ),
             }
             for workflow in workflows
         ]
@@ -39,7 +69,36 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
         workflow = workflow_map.get(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
-        return {"workflow": name, "versions": list_versions(name, store=store)}
+        current_version = workflow.version
+        versions = []
+        for version in list_versions(name, store=store):
+            runs = sorted(store.list_runs(workflow=name, version=version), key=lambda run: run.started_at)
+            versions.append(
+                {
+                    "version": version,
+                    "is_current": version == current_version,
+                    "run_count": len(runs),
+                    "latest_run": summarize_run(runs[-1]) if runs else None,
+                }
+            )
+        return {"workflow": name, "current_version": current_version, "versions": versions}
+
+    @app.get("/api/workflows/{name}/runs")
+    async def list_workflow_runs(name: str, version: str | None = None):
+        workflow = workflow_map.get(name)
+        if workflow is None:
+            raise HTTPException(status_code=404, detail="workflow not found")
+        runs = sorted(
+            store.list_runs(workflow=name, version=version),
+            key=lambda run: run.started_at,
+            reverse=True,
+        )
+        return {
+            "workflow": name,
+            "current_version": workflow.version,
+            "version": version,
+            "runs": [summarize_run(run) for run in runs],
+        }
 
     @app.post("/api/workflows/{name}/runs")
     async def start_run(name: str, run_id: str | None = None):
@@ -56,7 +115,12 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
 
     @app.get("/api/runs")
     async def list_runs(workflow: str | None = None, version: str | None = None):
-        return [run.model_dump(mode="json") for run in store.list_runs(workflow=workflow, version=version)]
+        runs = sorted(
+            store.list_runs(workflow=workflow, version=version),
+            key=lambda run: run.started_at,
+            reverse=True,
+        )
+        return [summarize_run(run) for run in runs]
 
     @app.get("/api/runs/{run_id}")
     async def get_run(run_id: str):
