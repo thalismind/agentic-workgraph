@@ -3,11 +3,11 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from .core import Executor, list_versions, trace_workflow
-from .store import InMemoryStore
+from .store import InMemoryStore, create_store
 
 
-def create_app(*, workflows: list, store: InMemoryStore | None = None) -> FastAPI:
-    store = store or InMemoryStore()
+def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url: str | None = None) -> FastAPI:
+    store = store or create_store(redis_url)
     executor = Executor(store=store)
     app = FastAPI(title="agentic-workgraph")
     app.state.executor = executor
