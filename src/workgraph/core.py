@@ -948,6 +948,8 @@ class Executor:
             record.status = RunStatus.RUNNING
             record.graph = graph.model_copy(update={"graph_id": f"{workflow_def.name}:{run_id}"})
             record.finished_at = None
+            record.final_node_id = None
+            record.final_output = None
             for node in graph.nodes:
                 record.nodes.setdefault(node.instance_id, RunNodeState())
 
@@ -1007,6 +1009,8 @@ class Executor:
                     )
                     outputs[call.instance_id] = result
                     record.outputs[call.instance_id] = result
+                    record.final_node_id = call.display_id
+                    record.final_output = result
                     state.output = result
                     state.checkpoint = result
                     state.status = NodeStatus.COMPLETED

@@ -209,6 +209,8 @@ class RunRecord(BaseModel):
     workflow_args: tuple[Any, ...] = Field(default_factory=tuple)
     workflow_kwargs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, list[Any]] = Field(default_factory=dict)
+    final_node_id: str | None = None
+    final_output: list[Any] | None = None
     nodes: dict[str, RunNodeState] = Field(default_factory=dict)
     errors: list[NodeError] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
