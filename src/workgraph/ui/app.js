@@ -325,11 +325,23 @@ function renderGraph() {
     tooltip.textContent = node.node_id;
     group.append(tooltip);
 
+    const clipPath = document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
+    const clipId = `node-title-clip-${node.instance_id}`;
+    clipPath.setAttribute("id", clipId);
+    const clipRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    clipRect.setAttribute("x", String(x + 12));
+    clipRect.setAttribute("y", String(y + 8));
+    clipRect.setAttribute("width", "126");
+    clipRect.setAttribute("height", "18");
+    clipPath.append(clipRect);
+    svg.append(clipPath);
+
     const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
     title.setAttribute("x", String(x + 12));
     title.setAttribute("y", String(y + 23));
     title.setAttribute("font-size", "13");
     title.setAttribute("font-weight", "700");
+    title.setAttribute("clip-path", `url(#${clipId})`);
     title.textContent = formatNodeLabel(node.node_id);
     group.append(title);
 
