@@ -741,6 +741,7 @@ async function loadRunDetail() {
   renderDetailPanels();
   await loadNodeInspector();
   connectRunSocket();
+  syncHashFromState(state.applyingHashRoute);
 }
 
 async function loadWorkflowHistory() {
