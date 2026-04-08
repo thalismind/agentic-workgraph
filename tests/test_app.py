@@ -31,17 +31,25 @@ def test_app_exposes_workflow_graph():
 
     ui_script = client.get("/ui/static/app.js")
     assert ui_script.status_code == 200
-    assert "renderGraph" in ui_script.text
-    assert "WebSocket" in ui_script.text
+    assert './graph.js' in ui_script.text
+    assert './router.js' in ui_script.text
+    assert './state.js' in ui_script.text
     assert "loadNodeInspector" in ui_script.text
     assert "scheduleTraceRefresh" in ui_script.text
     assert "applyEvent" in ui_script.text
-    assert "computeGraphLayout" in ui_script.text
-    assert "streamingNodes" in ui_script.text
     assert "launchWorkflowRun" in ui_script.text
-    assert "parseHashRoute" in ui_script.text
-    assert "window.location.hash" in ui_script.text
     assert '"hashchange"' in ui_script.text
+
+    graph_script = client.get("/ui/static/graph.js")
+    assert graph_script.status_code == 200
+    assert "computeGraphLayout" in graph_script.text
+    assert "renderGraph" in graph_script.text
+    assert "streamingNodes" in graph_script.text
+
+    router_script = client.get("/ui/static/router.js")
+    assert router_script.status_code == 200
+    assert "parseHashRoute" in router_script.text
+    assert "window.location.hash" in router_script.text
 
     response = client.get("/api/workflows")
     assert response.status_code == 200
