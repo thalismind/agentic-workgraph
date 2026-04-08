@@ -225,6 +225,7 @@ function renderNodeInspector() {
 function updateRunSummary() {
   if (!state.run) {
     $("detail-summary").textContent = "No run selected.";
+    $("final-artifact").textContent = "No terminal artifact recorded.";
     return;
   }
   const live = ["running", "pending"].includes(state.run.status)
@@ -240,6 +241,21 @@ function updateRunSummary() {
       <span><span class="muted">Finished:</span> ${state.run.finished_at ? formatStarted(state.run.finished_at) : "pending"}</span>
     </div>
   `;
+
+  const artifactPanel = $("final-artifact");
+  if (!state.run.final_output?.length) {
+    artifactPanel.textContent = "No terminal artifact recorded.";
+    return;
+  }
+  const preview = JSON.stringify(state.run.final_output[0], null, 2);
+  artifactPanel.innerHTML = `
+    <strong>Final Artifact</strong>
+    <br />
+    <span class="muted">Terminal node:</span> ${state.run.final_node_id ?? "unknown"}
+    <pre class="artifact-preview"></pre>
+  `;
+  artifactPanel.querySelector(".artifact-preview").textContent =
+    `${preview.slice(0, 1200)}${preview.length > 1200 ? "\n..." : ""}`;
 }
 
 async function loadStream() {
