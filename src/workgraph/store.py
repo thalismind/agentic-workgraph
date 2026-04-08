@@ -5,9 +5,27 @@ import json
 import threading
 import time
 from collections import defaultdict
+from datetime import date, datetime
+from enum import Enum
 from typing import Any
 
+from pydantic import BaseModel
+
 from .models import RunRecord
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 class InMemoryStore:
@@ -59,6 +77,7 @@ class InMemoryStore:
         return list(self.workflow_versions.get(workflow_name, []))
 
     def publish_event(self, run_id: str, event: dict) -> None:
+        event = _json_safe(event)
         self.event_history[run_id].append(event)
         for queue, loop in list(self.event_subscribers.get(run_id, [])):
             loop.call_soon_threadsafe(queue.put_nowait, event)

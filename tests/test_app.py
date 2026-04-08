@@ -179,6 +179,8 @@ def test_stream_events_and_recording():
     stream_events = [event for event in events if event["event"] == "node_stream"]
     assert [event["token"] for event in stream_events] == ["slow ", "hello ", "world"]
     assert any(event["event"] == "node_stream_end" for event in events)
+    node_output = next(event for event in events if event["event"] == "node_output")
+    assert node_output["output"] == ["slow hello world"]
 
     stream = client.get("/api/runs/stream-run/nodes/stream_hello_0/items/0/stream")
     assert stream.status_code == 200
