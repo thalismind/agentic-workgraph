@@ -61,8 +61,11 @@ The demo app in [`demo_app.py`](/workspace/data/coding/projects/agentic-workgrap
 
 - `hello-flow`: the smallest end-to-end workflow
 - `research-demo`: fan-out summaries, progress updates, stream playback, and traceable runs
+- `example-iterative-refinement`: loop modeling in the embedded UI
 
 The example library in [`examples/README.md`](/workspace/data/coding/projects/agentic-workgraph/examples/README.md) adds a broader set of runnable workflows for common agentic patterns.
+
+The embedded UI also supports launching a fresh run directly from the selected workflow with the `Run Workflow` button.
 
 ## Authoring Model
 
@@ -98,6 +101,96 @@ Node functions are scalar. The runtime handles list-shaped execution, concurrenc
 
 - [`docs/example-library.md`](/workspace/data/coding/projects/agentic-workgraph/docs/example-library.md): what each example workflow demonstrates
 - [`docs/agentic-patterns.md`](/workspace/data/coding/projects/agentic-workgraph/docs/agentic-patterns.md): guidance on pipeline, fan-out, branching, loops, scratchpads, and recovery
+
+## Example Library
+
+The example library currently includes:
+
+- `example-hello`
+- `example-fanout-research`
+- `example-conditional-review`
+- `example-iterative-refinement`
+- `example-scratchpad-collaboration`
+- `example-live-weather-capture`
+
+Run the example app with:
+
+```bash
+.venv/bin/python -m uvicorn examples.app:app --host 0.0.0.0 --port 8081
+```
+
+`example-live-weather-capture` is the real-world reference workflow in the library. It fetches live weather data over HTTP and writes a real screenshot artifact to disk.
+
+## Launching Jobs
+
+There are three straightforward ways to launch a workflow run today.
+
+### From the UI
+
+Open `/ui`, select a workflow, and click `Run Workflow`. The UI calls the existing workflow run API and then selects the new run automatically.
+
+### From a webhook
+
+If another system needs to trigger jobs, the cleanest boundary is the workflow run API:
+
+```bash
+curl -X POST http://127.0.0.1:8081/api/workflows/example-fanout-research/runs
+```
+
+If you want custom request handling, add your own FastAPI route beside `create_app()` and call the executor directly:
+
+```python
+from fastapi import Request
+
+from workgraph import create_app
+from examples.workflows import fanout_research
+
+app = create_app(workflows=[fanout_research])
+
+
+@app.post("/webhooks/research")
+async def launch_research(request: Request):
+    payload = await request.json()
+    run = await app.state.executor.run(
+        fanout_research,
+        seed=[payload.get("seed", "agentic")],
+    )
+    return {"run_id": run.run_id, "status": run.status}
+```
+
+### On a schedule with cron or CronJobs
+
+For a single host, cron can call the same workflow run API:
+
+```cron
+*/30 * * * * curl -fsS -X POST http://127.0.0.1:8081/api/workflows/example-live-weather-capture/runs >/dev/null
+```
+
+In Kubernetes, the equivalent is a `CronJob` that hits the same endpoint:
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: workgraph-weather
+spec:
+  schedule: "*/30 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: trigger
+              image: curlimages/curl:8.8.0
+              args:
+                - -fsS
+                - -X
+                - POST
+                - http://workgraph:8081/api/workflows/example-live-weather-capture/runs
+```
+
+The important design point is that UI launches, webhooks, and scheduled jobs can all use the same workflow execution surface instead of separate orchestration code paths.
 
 ## Redis
 
