@@ -23,6 +23,16 @@ def test_app_exposes_workflow_graph():
     app = create_app(workflows=[hello_flow])
     client = TestClient(app)
 
+    ui = client.get("/ui")
+    assert ui.status_code == 200
+    assert "Workflow History" in ui.text
+
+    ui_script = client.get("/ui/static/app.js")
+    assert ui_script.status_code == 200
+    assert "renderGraph" in ui_script.text
+    assert "WebSocket" in ui_script.text
+    assert "loadNodeInspector" in ui_script.text
+
     response = client.get("/api/workflows")
     assert response.status_code == 200
     assert response.json()[0]["name"] == "hello-flow"

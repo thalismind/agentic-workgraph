@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .core import Executor, list_versions, trace_workflow
 from .store import InMemoryStore, create_store
@@ -12,9 +16,12 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
     app = FastAPI(title="agentic-workgraph")
     app.state.executor = executor
     app.state.store = store
+    ui_dir = Path(__file__).resolve().parent / "ui"
     workflow_map = {workflow.name: workflow for workflow in workflows}
     for workflow in workflows:
         store.register_workflow(workflow)
+
+    app.mount("/ui/static", StaticFiles(directory=ui_dir), name="ui-static")
 
     def summarize_run(run):
         return {
@@ -55,6 +62,10 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
             }
             for workflow in workflows
         ]
+
+    @app.get("/ui")
+    async def ui_index():
+        return FileResponse(ui_dir / "index.html")
 
     @app.get("/api/workflows/{name}/graph")
     async def get_graph(name: str):
