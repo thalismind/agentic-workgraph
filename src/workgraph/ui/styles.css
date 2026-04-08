@@ -96,6 +96,14 @@ h1 {
   gap: 20px;
 }
 
+.layout.detail-focus {
+  grid-template-columns: 280px minmax(720px, 1fr);
+}
+
+.layout.detail-focus .history-panel {
+  display: none;
+}
+
 .panel {
   background: var(--paper);
   backdrop-filter: blur(14px);
@@ -112,6 +120,14 @@ h1 {
   gap: 16px;
   align-items: flex-start;
   margin-bottom: 16px;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .pill,

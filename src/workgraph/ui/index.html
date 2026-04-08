@@ -21,7 +21,7 @@
         <button id="refresh-button" class="refresh-button" type="button">Refresh</button>
       </header>
 
-      <section class="layout">
+      <section id="main-layout" class="layout">
         <aside class="panel workflows-panel">
           <div class="panel-header">
             <h2>Workflows</h2>
@@ -55,6 +55,10 @@
             <div>
               <h2 id="detail-title">Run Detail</h2>
               <p id="detail-subtitle" class="muted">Select a run to inspect node timing, errors, and trace spans.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="focus-debugger-button" class="refresh-button" type="button">Focus Debugger</button>
+              <button id="restore-layout-button" class="refresh-button hidden" type="button">Restore Layout</button>
             </div>
           </div>
           <div id="detail-summary" class="detail-summary empty-state">No run selected.</div>

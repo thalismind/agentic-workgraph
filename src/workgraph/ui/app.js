@@ -14,6 +14,18 @@ import {
   stopTraceRefresh,
 } from "./state.js";
 
+function renderLayoutControls() {
+  const layout = $("main-layout");
+  const focused = layout.classList.contains("detail-focus");
+  $("focus-debugger-button").classList.toggle("hidden", focused);
+  $("restore-layout-button").classList.toggle("hidden", !focused);
+}
+
+function setDetailFocus(enabled) {
+  $("main-layout").classList.toggle("detail-focus", enabled);
+  renderLayoutControls();
+}
+
 function renderWorkflows() {
   const workflowsList = $("workflows-list");
   const template = $("workflow-card-template");
@@ -540,6 +552,8 @@ async function launchWorkflowRun() {
 
 $("refresh-button").addEventListener("click", () => refresh().catch(console.error));
 $("run-workflow-button").addEventListener("click", () => launchWorkflowRun().catch(console.error));
+$("focus-debugger-button").addEventListener("click", () => setDetailFocus(true));
+$("restore-layout-button").addEventListener("click", () => setDetailFocus(false));
 $("items-tab").addEventListener("click", () => setTab("items"));
 $("stream-tab").addEventListener("click", () => setTab("stream"));
 window.addEventListener("hashchange", () => {
@@ -547,6 +561,7 @@ window.addEventListener("hashchange", () => {
 });
 setTab("items");
 renderRunButton();
+renderLayoutControls();
 
 refresh().catch((error) => {
   $("detail-summary").textContent = error.message;

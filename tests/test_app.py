@@ -28,6 +28,8 @@ def test_app_exposes_workflow_graph():
     assert "Workflow History" in ui.text
     assert "graph-warnings" in ui.text
     assert "run-workflow-button" in ui.text
+    assert "focus-debugger-button" in ui.text
+    assert "restore-layout-button" in ui.text
 
     ui_script = client.get("/ui/static/app.js")
     assert ui_script.status_code == 200
@@ -38,6 +40,8 @@ def test_app_exposes_workflow_graph():
     assert "scheduleTraceRefresh" in ui_script.text
     assert "applyEvent" in ui_script.text
     assert "launchWorkflowRun" in ui_script.text
+    assert "setDetailFocus" in ui_script.text
+    assert "renderLayoutControls" in ui_script.text
     assert '"hashchange"' in ui_script.text
 
     graph_script = client.get("/ui/static/graph.js")
