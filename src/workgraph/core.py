@@ -408,6 +408,10 @@ async def _run_one_item(
                     "workgraph.node.instance_id": node_instance_id,
                     "workgraph.node.attempt": attempt,
                     "workgraph.item.index": item_index,
+                    "workgraph.node.timeout_s": node_def.timeout if node_def.timeout is not None else -1,
+                    "workgraph.node.item_retries": node_def.item_retries,
+                    "workgraph.node.output_schema": _schema_name(node_def.output_schema) or "",
+                    "workgraph.validation.strategy": node_def.on_validation_fail.value,
                 },
             ) as span:
                 ctx = Context(
@@ -435,6 +439,17 @@ async def _run_one_item(
                 counters.completed += 1
                 span.set_attribute("workgraph.node.status", "ok")
                 span.set_attribute("workgraph.validation.passed", True)
+                span.set_attribute("workgraph.validation.errors", "[]")
+                emit_event(
+                    _event(
+                        "validation_result",
+                        run_id,
+                        node_id=node_instance_id,
+                        item_index=item_index,
+                        passed=True,
+                        errors=[],
+                    )
+                )
                 emit_event(
                     _event(
                         "node_counters",
@@ -453,6 +468,16 @@ async def _run_one_item(
             span.set_attribute("workgraph.validation.passed", False)
             span.set_attribute("workgraph.validation.errors", json.dumps(exc.errors(include_url=False)))
             span.set_status(Status(StatusCode.ERROR, str(exc)))
+            emit_event(
+                _event(
+                    "validation_result",
+                    run_id,
+                    node_id=node_instance_id,
+                    item_index=item_index,
+                    passed=False,
+                    errors=exc.errors(include_url=False),
+                )
+            )
             error_log.append(
                 NodeError(
                     run_id=run_id,
@@ -702,7 +727,11 @@ class Executor:
         run_id_override: str | None = None,
     ) -> RunRecord:
         self.store.register_workflow(workflow_def)
-        self.telemetry = Telemetry(self.store, service_name=workflow_def.otel_service_name)
+        self.telemetry = Telemetry(
+            self.store,
+            service_name=workflow_def.otel_service_name,
+            endpoint=workflow_def.otel_endpoint,
+        )
         tracer = self.telemetry.get_tracer()
         graph, calls = trace_workflow(workflow_def, *args, **kwargs)
         if existing_run is None:
@@ -738,6 +767,7 @@ class Executor:
                 "workgraph.run.id": run_id,
                 "workgraph.workflow.name": workflow_def.name,
                 "workgraph.workflow.version": workflow_def.version,
+                "workgraph.run.resume": existing_run is not None,
             },
         ) as run_span:
             self.store.save_run(record)

@@ -153,6 +153,15 @@ def test_stream_events_and_recording():
     llm_span = next(span for span in spans if span["name"] == "llm.complete")
     assert llm_span["attributes"]["workgraph.run.id"] == "stream-run"
     assert llm_span["attributes"]["workgraph.node.instance_id"] == "stream_hello_0"
+    assert llm_span["attributes"]["workgraph.validation.feedback_applied"] is False
+    assert llm_span["attributes"]["llm.tokens.input"] >= 2
+    assert llm_span["attributes"]["llm.tokens.output"] >= 3
+    assert llm_span["attributes"]["llm.cost.usd"] == 0.0
+    assert "llm.latency_ms" in llm_span["attributes"]
+
+    node_span = next(span for span in spans if span["name"] == "stream_hello")
+    assert node_span["attributes"]["workgraph.validation.passed"] is True
+    assert node_span["attributes"]["workgraph.validation.strategy"] == "retry"
 
     timeline = client.get("/api/runs/stream-run/timeline")
     assert timeline.status_code == 200

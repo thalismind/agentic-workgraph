@@ -4,7 +4,7 @@ from typing import Any
 
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.trace import StatusCode
 
 
@@ -36,9 +36,17 @@ class StoreSpanExporter(SpanExporter):
 
 
 class Telemetry:
-    def __init__(self, store, *, service_name: str = "workgraph") -> None:
+    def __init__(self, store, *, service_name: str = "workgraph", endpoint: str | None = None) -> None:
         provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
         provider.add_span_processor(SimpleSpanProcessor(StoreSpanExporter(store)))
+        if endpoint:
+            try:
+                from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+            except ImportError as exc:  # pragma: no cover - depends on optional runtime package being installed
+                raise ImportError(
+                    "OTLP export requires 'opentelemetry-exporter-otlp-proto-grpc' to be installed"
+                ) from exc
+            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
         self.provider = provider
         self.tracer = provider.get_tracer("workgraph")
 
