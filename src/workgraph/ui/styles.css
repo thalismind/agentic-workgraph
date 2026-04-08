@@ -64,6 +64,14 @@ body {
   margin-bottom: 24px;
 }
 
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .eyebrow {
   margin: 0 0 8px;
   text-transform: uppercase;
@@ -132,6 +140,36 @@ h1 {
 
 .hidden {
   display: none !important;
+}
+
+.ws-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.ws-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--muted);
+  box-shadow: 0 0 0 3px rgba(89, 103, 100, 0.14);
+}
+
+.ws-indicator.connected .ws-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 74, 60, 0.14);
+}
+
+.ws-indicator.disconnected .ws-dot {
+  background: var(--red);
+  box-shadow: 0 0 0 3px rgba(142, 59, 47, 0.14);
 }
 
 .pill,

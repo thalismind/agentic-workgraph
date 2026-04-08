@@ -14,6 +14,37 @@ import {
   stopTraceRefresh,
 } from "./state.js";
 
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return "No messages yet";
+  const deltaMs = Math.max(0, Date.now() - new Date(timestamp).getTime());
+  if (deltaMs < 1000) return "Last event just now";
+  const seconds = Math.floor(deltaMs / 1000);
+  if (seconds < 60) return `Last event ${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Last event ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `Last event ${hours}h ago`;
+}
+
+function renderWsStatus() {
+  const indicator = $("ws-status-indicator");
+  indicator.classList.toggle("connected", state.wsConnected);
+  indicator.classList.toggle("disconnected", !state.wsConnected);
+  $("ws-status-label").textContent = state.wsConnected ? "WS connected" : "WS disconnected";
+  $("ws-status-last").textContent = formatRelativeTime(state.lastWsMessageAt);
+}
+
+function startWsStatusClock() {
+  if (state.wsStatusTimer) clearInterval(state.wsStatusTimer);
+  state.wsStatusTimer = setInterval(() => renderWsStatus(), 1000);
+}
+
+function closeLiveSocket() {
+  closeSocket();
+  state.wsConnected = false;
+  renderWsStatus();
+}
+
 function renderLayoutControls() {
   const layout = $("main-layout");
   const focused = layout.classList.contains("detail-focus");
@@ -39,7 +70,7 @@ function renderWorkflows() {
     node.querySelector(".workflow-meta").textContent =
       `${workflow.run_count} runs · ${workflow.version_count} versions`;
     node.addEventListener("click", async () => {
-      closeSocket();
+      closeLiveSocket();
       stopTraceRefresh();
       state.selectedWorkflow = workflow.name;
       state.selectedVersion = null;
@@ -101,7 +132,7 @@ function renderRuns(payload) {
     node.querySelector(".run-started").textContent = formatStarted(run.started_at);
     node.querySelector(".run-errors").textContent = `${run.error_count} errors`;
     node.addEventListener("click", async () => {
-      closeSocket();
+      closeLiveSocket();
       stopTraceRefresh();
       state.selectedRunId = run.run_id;
       state.selectedNodeId = null;
@@ -397,6 +428,8 @@ function applyEvent(event) {
 
   updateTimelineFromEvent(event);
   updateErrorsFromEvent(event);
+  state.lastWsMessageAt = event.timestamp ?? new Date().toISOString();
+  renderWsStatus();
   updateRunSummary();
   renderDetailPanels();
 
@@ -409,13 +442,21 @@ function applyEvent(event) {
 }
 
 function connectRunSocket() {
-  closeSocket();
-  if (!state.selectedRunId || !["running", "pending"].includes(state.run?.status ?? "")) return;
+  closeLiveSocket();
+  if (!state.selectedRunId || !["running", "pending"].includes(state.run?.status ?? "")) {
+    return;
+  }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   state.ws = new WebSocket(`${protocol}//${window.location.host}/api/runs/${state.selectedRunId}/ws`);
+  state.ws.onopen = () => {
+    state.wsConnected = true;
+    renderWsStatus();
+  };
   state.ws.onmessage = (message) => applyEvent(JSON.parse(message.data));
   state.ws.onclose = () => {
     state.ws = null;
+    state.wsConnected = false;
+    renderWsStatus();
   };
 }
 
@@ -471,7 +512,7 @@ async function loadWorkflowHistory() {
     setActiveButton($("runs-list"), state.selectedRunId);
     await loadRunDetail();
   } else {
-    closeSocket();
+    closeLiveSocket();
     stopTraceRefresh();
     state.selectedRunId = null;
     state.selectedNodeId = state.graph?.nodes?.[0]?.instance_id ?? null;
@@ -507,7 +548,7 @@ async function applyHashRoute() {
 
   state.applyingHashRoute = true;
   try {
-    closeSocket();
+    closeLiveSocket();
     stopTraceRefresh();
     state.selectedWorkflow = nextWorkflow;
     state.selectedVersion = route.version || null;
@@ -562,6 +603,8 @@ window.addEventListener("hashchange", () => {
 setTab("items");
 renderRunButton();
 renderLayoutControls();
+renderWsStatus();
+startWsStatusClock();
 
 refresh().catch((error) => {
   $("detail-summary").textContent = error.message;

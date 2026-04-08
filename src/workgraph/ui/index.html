@@ -18,7 +18,14 @@
             Embedded run history, version metadata, node timing, trace spans, and live run details from the FastAPI process.
           </p>
         </div>
-        <button id="refresh-button" class="refresh-button" type="button">Refresh</button>
+        <div class="hero-actions">
+          <div id="ws-status-indicator" class="ws-indicator disconnected" aria-live="polite">
+            <span class="ws-dot"></span>
+            <span id="ws-status-label">WS disconnected</span>
+            <span id="ws-status-last" class="muted small">No messages yet</span>
+          </div>
+          <button id="refresh-button" class="refresh-button" type="button">Refresh</button>
+        </div>
       </header>
 
       <section id="main-layout" class="layout">
