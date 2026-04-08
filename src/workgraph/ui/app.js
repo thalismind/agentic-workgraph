@@ -17,6 +17,7 @@ const state = {
   ws: null,
   traceRefreshTimer: null,
   launchingRun: false,
+  applyingHashRoute: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -51,6 +52,45 @@ function formatStarted(startedAt) {
 function formatNodeLabel(nodeId, maxLength = 20) {
   if (nodeId.length <= maxLength) return { text: nodeId, truncated: false };
   return { text: `${nodeId.slice(0, maxLength - 1)}…`, truncated: true };
+}
+
+function parseHashRoute() {
+  const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  const params = new URLSearchParams(rawHash);
+  return {
+    workflow: params.get("workflow"),
+    version: params.get("version"),
+    run: params.get("run"),
+  };
+}
+
+function buildHashRoute() {
+  const params = new URLSearchParams();
+  if (state.selectedWorkflow) params.set("workflow", state.selectedWorkflow);
+  if (state.selectedVersion) params.set("version", state.selectedVersion);
+  if (state.selectedRunId) params.set("run", state.selectedRunId);
+  const route = params.toString();
+  return route ? `#${route}` : "";
+}
+
+function routeMatchesState(route) {
+  return (
+    (route.workflow || null) === (state.selectedWorkflow || null) &&
+    (route.version || null) === (state.selectedVersion || null) &&
+    (route.run || null) === (state.selectedRunId || null)
+  );
+}
+
+function syncHashFromState(replace = false) {
+  if (state.applyingHashRoute) return;
+  const nextHash = buildHashRoute();
+  if (window.location.hash === nextHash) return;
+  if (replace) {
+    const route = `${window.location.pathname}${window.location.search}${nextHash}`;
+    window.history.replaceState(null, "", route);
+    return;
+  }
+  window.location.hash = nextHash;
 }
 
 function setActiveButton(container, activeValue) {
@@ -706,15 +746,19 @@ async function loadRunDetail() {
 async function loadWorkflowHistory() {
   if (!state.selectedWorkflow) return;
 
-  const [versionsPayload, runsPayload, graphPayload] = await Promise.all([
+  const [versionsPayload, graphPayload] = await Promise.all([
     fetchJson(`/api/workflows/${state.selectedWorkflow}/versions`),
-    fetchJson(
-      `/api/workflows/${state.selectedWorkflow}/runs${
-        state.selectedVersion ? `?version=${encodeURIComponent(state.selectedVersion)}` : ""
-      }`,
-    ),
     fetchJson(`/api/workflows/${state.selectedWorkflow}/graph`),
   ]);
+  const knownVersions = new Set(versionsPayload.versions.map((version) => version.version));
+  if (state.selectedVersion && !knownVersions.has(state.selectedVersion)) {
+    state.selectedVersion = null;
+  }
+  const runsPayload = await fetchJson(
+    `/api/workflows/${state.selectedWorkflow}/runs${
+      state.selectedVersion ? `?version=${encodeURIComponent(state.selectedVersion)}` : ""
+    }`,
+  );
 
   state.graph = graphPayload;
   renderRunButton();
@@ -743,16 +787,52 @@ async function loadWorkflowHistory() {
     $("detail-summary").textContent = "No run selected.";
     renderDetailPanels();
   }
+
+  syncHashFromState(state.applyingHashRoute);
+}
+
+async function applyHashRoute() {
+  if (state.workflows.length === 0) {
+    renderWorkflows();
+    renderRunButton();
+    return;
+  }
+
+  const route = parseHashRoute();
+  if (state.selectedWorkflow && routeMatchesState(route)) return;
+  const workflowNames = new Set(state.workflows.map((workflow) => workflow.name));
+  const nextWorkflow = route.workflow && workflowNames.has(route.workflow)
+    ? route.workflow
+    : state.workflows[0].name;
+  const workflowChanged = state.selectedWorkflow !== nextWorkflow;
+  const runChanged = state.selectedRunId !== route.run;
+
+  state.applyingHashRoute = true;
+  try {
+    closeSocket();
+    stopTraceRefresh();
+    state.selectedWorkflow = nextWorkflow;
+    state.selectedVersion = route.version || null;
+    state.selectedRunId = route.run || null;
+    if (workflowChanged || runChanged) {
+      state.selectedNodeId = null;
+      state.selectedItemIndex = 0;
+      state.nodeItems = [];
+      state.streamText = "";
+      state.streamingNodes.clear();
+    }
+
+    renderWorkflows();
+    renderRunButton();
+    await loadWorkflowHistory();
+  } finally {
+    state.applyingHashRoute = false;
+  }
 }
 
 async function refresh() {
   state.workflows = await fetchJson("/api/workflows");
-  if (!state.selectedWorkflow && state.workflows.length > 0) {
-    state.selectedWorkflow = state.workflows[0].name;
-  }
-  renderWorkflows();
-  renderRunButton();
-  await loadWorkflowHistory();
+  await applyHashRoute();
 }
 
 async function launchWorkflowRun() {
@@ -776,6 +856,9 @@ $("refresh-button").addEventListener("click", () => refresh().catch(console.erro
 $("run-workflow-button").addEventListener("click", () => launchWorkflowRun().catch(console.error));
 $("items-tab").addEventListener("click", () => setTab("items"));
 $("stream-tab").addEventListener("click", () => setTab("stream"));
+window.addEventListener("hashchange", () => {
+  applyHashRoute().catch(console.error);
+});
 setTab("items");
 renderRunButton();
 

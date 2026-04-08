@@ -39,6 +39,9 @@ def test_app_exposes_workflow_graph():
     assert "computeGraphLayout" in ui_script.text
     assert "streamingNodes" in ui_script.text
     assert "launchWorkflowRun" in ui_script.text
+    assert "parseHashRoute" in ui_script.text
+    assert "window.location.hash" in ui_script.text
+    assert '"hashchange"' in ui_script.text
 
     response = client.get("/api/workflows")
     assert response.status_code == 200
