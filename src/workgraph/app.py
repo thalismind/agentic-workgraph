@@ -7,6 +7,17 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .core import Executor, list_versions, trace_workflow
+from .models import (
+    GraphSpec,
+    RunLaunchResponse,
+    RunRecord,
+    RunSummary,
+    TimelineEntry,
+    WorkflowRunsResponse,
+    WorkflowSummary,
+    WorkflowVersionEntry,
+    WorkflowVersionsResponse,
+)
 from .store import InMemoryStore, create_store
 
 
@@ -23,78 +34,77 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
 
     app.mount("/ui/static", StaticFiles(directory=ui_dir), name="ui-static")
 
-    def summarize_run(run):
-        return {
-            "run_id": run.run_id,
-            "workflow": run.workflow,
-            "version": run.version,
-            "status": run.status,
-            "started_at": run.started_at,
-            "finished_at": run.finished_at,
-            "duration_ms": (
+    def summarize_run(run: RunRecord) -> RunSummary:
+        return RunSummary(
+            run_id=run.run_id,
+            workflow=run.workflow,
+            version=run.version,
+            status=run.status,
+            started_at=run.started_at,
+            finished_at=run.finished_at,
+            duration_ms=(
                 int((run.finished_at - run.started_at).total_seconds() * 1000)
                 if run.finished_at is not None
                 else None
             ),
-            "error_count": len(run.errors),
-            "node_count": len(run.nodes),
-            "llm_cost_usd": 0.0,
-        }
+            error_count=len(run.errors),
+            node_count=len(run.nodes),
+            llm_cost_usd=0.0,
+        )
 
-    @app.get("/api/workflows")
+    @app.get("/api/workflows", response_model=list[WorkflowSummary])
     async def list_workflows():
-        return [
-            {
-                "name": workflow.name,
-                "current_version": workflow.version,
-                "version_count": len(store.list_versions(workflow.name)),
-                "run_count": len(store.list_runs(workflow=workflow.name)),
-                "latest_run": (
-                    summarize_run(
-                        sorted(
-                            store.list_runs(workflow=workflow.name),
-                            key=lambda run: run.started_at,
-                        )[-1]
-                    )
-                    if store.list_runs(workflow=workflow.name)
-                    else None
-                ),
-            }
-            for workflow in workflows
-        ]
+        payload: list[WorkflowSummary] = []
+        for workflow in workflows:
+            workflow_runs = store.list_runs(workflow=workflow.name)
+            latest_run = (
+                summarize_run(sorted(workflow_runs, key=lambda run: run.started_at)[-1])
+                if workflow_runs
+                else None
+            )
+            payload.append(
+                WorkflowSummary(
+                    name=workflow.name,
+                    current_version=workflow.version,
+                    version_count=len(store.list_versions(workflow.name)),
+                    run_count=len(workflow_runs),
+                    latest_run=latest_run,
+                )
+            )
+        return payload
 
     @app.get("/ui")
     async def ui_index():
         return FileResponse(ui_dir / "index.html")
 
-    @app.get("/api/workflows/{name}/graph")
+    @app.get("/api/workflows/{name}/graph", response_model=GraphSpec)
     async def get_graph(name: str):
         workflow = workflow_map.get(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         graph, _calls = trace_workflow(workflow)
-        return graph.model_dump(by_alias=True)
+        return graph
 
-    @app.get("/api/workflows/{name}/versions")
+    @app.get("/api/workflows/{name}/versions", response_model=WorkflowVersionsResponse)
     async def get_versions(name: str):
         workflow = workflow_map.get(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         current_version = workflow.version
-        versions = []
+        versions: list[WorkflowVersionEntry] = []
         for version in list_versions(name, store=store):
             runs = sorted(store.list_runs(workflow=name, version=version), key=lambda run: run.started_at)
             versions.append(
-                {
-                    "version": version,
-                    "is_current": version == current_version,
-                    "run_count": len(runs),
-                    "latest_run": summarize_run(runs[-1]) if runs else None,
-                }
+                WorkflowVersionEntry(
+                    version=version,
+                    is_current=version == current_version,
+                    run_count=len(runs),
+                    latest_run=summarize_run(runs[-1]) if runs else None,
+                )
             )
-        return {"workflow": name, "current_version": current_version, "versions": versions}
+        return WorkflowVersionsResponse(workflow=name, current_version=current_version, versions=versions)
 
-    @app.get("/api/workflows/{name}/runs")
+    @app.get("/api/workflows/{name}/runs", response_model=WorkflowRunsResponse)
     async def list_workflow_runs(name: str, version: str | None = None):
         workflow = workflow_map.get(name)
         if workflow is None:
@@ -104,27 +114,22 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
             key=lambda run: run.started_at,
             reverse=True,
         )
-        return {
-            "workflow": name,
-            "current_version": workflow.version,
-            "version": version,
-            "runs": [summarize_run(run) for run in runs],
-        }
+        return WorkflowRunsResponse(
+            workflow=name,
+            current_version=workflow.version,
+            version=version,
+            runs=[summarize_run(run) for run in runs],
+        )
 
-    @app.post("/api/workflows/{name}/runs")
+    @app.post("/api/workflows/{name}/runs", response_model=RunLaunchResponse)
     async def start_run(name: str, run_id: str | None = None):
         workflow = workflow_map.get(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         run = await executor.run(workflow, run_id=run_id)
-        return {
-            "run_id": run.run_id,
-            "status": run.status,
-            "workflow": run.workflow,
-            "version": run.version,
-        }
+        return RunLaunchResponse(run_id=run.run_id, status=run.status, workflow=run.workflow, version=run.version)
 
-    @app.get("/api/runs")
+    @app.get("/api/runs", response_model=list[RunSummary])
     async def list_runs(workflow: str | None = None, version: str | None = None):
         runs = sorted(
             store.list_runs(workflow=workflow, version=version),
@@ -133,45 +138,40 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
         )
         return [summarize_run(run) for run in runs]
 
-    @app.get("/api/runs/{run_id}")
+    @app.get("/api/runs/{run_id}", response_model=RunRecord)
     async def get_run(run_id: str):
         try:
             run = store.get_run(run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
-        return run.model_dump(mode="json")
+        return run
 
-    @app.post("/api/runs/{run_id}/resume")
+    @app.post("/api/runs/{run_id}/resume", response_model=RunLaunchResponse)
     async def resume_run(run_id: str):
         try:
             run = await executor.resume(run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
-        return {
-            "run_id": run.run_id,
-            "status": run.status,
-            "workflow": run.workflow,
-            "version": run.version,
-        }
+        return RunLaunchResponse(run_id=run.run_id, status=run.status, workflow=run.workflow, version=run.version)
 
     @app.get("/api/runs/{run_id}/trace")
     async def get_run_trace(run_id: str):
         return store.get_spans(run_id)
 
-    @app.get("/api/runs/{run_id}/timeline")
+    @app.get("/api/runs/{run_id}/timeline", response_model=list[TimelineEntry])
     async def get_run_timeline(run_id: str):
         try:
             run = store.get_run(run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
         return [
-            {
-                "node_id": node_id,
-                "status": node.status,
-                "started_at": node.started_at,
-                "finished_at": node.finished_at,
-                "duration_ms": node.duration_ms,
-            }
+            TimelineEntry(
+                node_id=node_id,
+                status=node.status,
+                started_at=node.started_at,
+                finished_at=node.finished_at,
+                duration_ms=node.duration_ms,
+            )
             for node_id, node in run.nodes.items()
         ]
 

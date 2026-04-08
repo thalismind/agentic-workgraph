@@ -78,6 +78,62 @@ class GraphSpec(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class RunSummary(BaseModel):
+    run_id: str
+    workflow: str
+    version: str
+    status: RunStatus
+    started_at: datetime
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+    error_count: int = 0
+    node_count: int = 0
+    llm_cost_usd: float = 0.0
+
+
+class WorkflowSummary(BaseModel):
+    name: str
+    current_version: str
+    version_count: int
+    run_count: int
+    latest_run: RunSummary | None = None
+
+
+class WorkflowVersionEntry(BaseModel):
+    version: str
+    is_current: bool
+    run_count: int
+    latest_run: RunSummary | None = None
+
+
+class WorkflowVersionsResponse(BaseModel):
+    workflow: str
+    current_version: str
+    versions: list[WorkflowVersionEntry] = Field(default_factory=list)
+
+
+class WorkflowRunsResponse(BaseModel):
+    workflow: str
+    current_version: str
+    version: str | None = None
+    runs: list[RunSummary] = Field(default_factory=list)
+
+
+class RunLaunchResponse(BaseModel):
+    run_id: str
+    status: RunStatus
+    workflow: str
+    version: str
+
+
+class TimelineEntry(BaseModel):
+    node_id: str
+    status: NodeStatus
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+
+
 class NodeCall(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
