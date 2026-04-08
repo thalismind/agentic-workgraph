@@ -126,7 +126,7 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
         workflow = workflow_map.get(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
-        run = await executor.run(workflow, run_id=run_id)
+        run = await executor.launch(workflow, run_id=run_id)
         return RunLaunchResponse(run_id=run.run_id, status=run.status, workflow=run.workflow, version=run.version)
 
     @app.get("/api/runs", response_model=list[RunSummary])
@@ -149,7 +149,7 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
     @app.post("/api/runs/{run_id}/resume", response_model=RunLaunchResponse)
     async def resume_run(run_id: str):
         try:
-            run = await executor.resume(run_id)
+            run = await executor.launch_resume(run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
         return RunLaunchResponse(run_id=run.run_id, status=run.status, workflow=run.workflow, version=run.version)

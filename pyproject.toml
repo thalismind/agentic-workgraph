@@ -16,6 +16,7 @@ dependencies = [
   "pydantic>=2.7",
   "redis>=5.2",
   "uvicorn>=0.30",
+  "websockets>=12",
 ]
 
 [project.optional-dependencies]

@@ -43,6 +43,15 @@ class WeatherCapture(BaseModel):
     screenshot_bytes: int
 
 
+async def _count_up_stage(stage_name: str, previous: str, ctx) -> str:
+    async with ctx.progress(desc=f"{stage_name} counting to 10") as progress:
+        for value in range(11):
+            await progress.update(value / 10)
+            if value < 10:
+                await asyncio.sleep(1)
+    return f"{previous} -> {stage_name} complete"
+
+
 @node(id="hello")
 async def hello(name: str, ctx):
     return f"hello {name}"
@@ -51,6 +60,28 @@ async def hello(name: str, ctx):
 @workflow(name="example-hello")
 def hello_flow():
     return hello(name=["world"])
+
+
+@node(id="count_stage_one")
+async def count_stage_one(seed: str, ctx):
+    return await _count_up_stage("stage one", seed, ctx)
+
+
+@node(id="count_stage_two")
+async def count_stage_two(previous: str, ctx):
+    return await _count_up_stage("stage two", previous, ctx)
+
+
+@node(id="count_stage_three")
+async def count_stage_three(previous: str, ctx):
+    return await _count_up_stage("stage three", previous, ctx)
+
+
+@workflow(name="example-serial-progress")
+def serial_progress():
+    stage_one = count_stage_one(seed=["serial progress"])
+    stage_two = count_stage_two(previous=stage_one)
+    return count_stage_three(previous=stage_two)
 
 
 @node(id="fetch_topics")
@@ -227,6 +258,7 @@ def live_weather_capture(location: list[str] | None = None, output_dir: str = "/
 
 EXAMPLE_WORKFLOWS = [
     hello_flow,
+    serial_progress,
     fanout_research,
     conditional_review,
     iterative_refinement,

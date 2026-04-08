@@ -3,7 +3,14 @@ from __future__ import annotations
 from workgraph import trace_workflow
 from workgraph.testing import MockLLM, run_test
 
-from examples.workflows import EXAMPLE_WORKFLOWS, conditional_review, fanout_research, iterative_refinement, live_weather_capture
+from examples.workflows import (
+    EXAMPLE_WORKFLOWS,
+    conditional_review,
+    fanout_research,
+    iterative_refinement,
+    live_weather_capture,
+    serial_progress,
+)
 
 
 async def test_example_workflows_trace():
@@ -11,6 +18,7 @@ async def test_example_workflows_trace():
 
     assert names == {
         "example-hello",
+        "example-serial-progress",
         "example-fanout-research",
         "example-conditional-review",
         "example-iterative-refinement",
@@ -20,6 +28,12 @@ async def test_example_workflows_trace():
 
     loop_graph, _ = trace_workflow(iterative_refinement)
     assert loop_graph.nodes[1].loop_iterations == 3
+    serial_graph, _ = trace_workflow(serial_progress)
+    assert [node.node_id for node in serial_graph.nodes] == [
+        "count_stage_one",
+        "count_stage_two",
+        "count_stage_three",
+    ]
 
 
 async def test_example_fanout_research_runs_with_mock_llm():

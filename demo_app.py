@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 from workgraph import create_app, node, workflow
 from workgraph.models import StreamEnvelope
-from examples.workflows import iterative_refinement
+from examples.workflows import iterative_refinement, serial_progress
 
 
 @node(id="hello")
@@ -65,5 +65,5 @@ async def demo_llm(*, prompt: str, node_id: str, node_instance_id: str, stream: 
     return response
 
 
-app = create_app(workflows=[hello_flow, research_demo, iterative_refinement])
+app = create_app(workflows=[hello_flow, research_demo, iterative_refinement, serial_progress])
 app.state.executor.llm_callable = demo_llm

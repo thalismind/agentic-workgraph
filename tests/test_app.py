@@ -1,12 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from fastapi.testclient import TestClient
 
 from workgraph import create_app, node, workflow
 from workgraph.testing import MockLLM
 from workgraph.store import InMemoryStore
+
+
+def wait_for_run_status(client: TestClient, run_id: str, expected: str, timeout: float = 2.0) -> dict:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        response = client.get(f"/api/runs/{run_id}")
+        if response.status_code == 200:
+            payload = response.json()
+            if payload["status"] == expected:
+                return payload
+        time.sleep(0.01)
+    raise AssertionError(f"run {run_id} did not reach status {expected}")
 
 
 @node(id="hello")
@@ -86,6 +99,8 @@ def test_app_exposes_workflow_graph():
     run = client.post("/api/workflows/hello-flow/runs")
     assert run.status_code == 200
     run_id = run.json()["run_id"]
+    assert run.json()["status"] == "pending"
+    wait_for_run_status(client, run_id, "completed")
 
     items = client.get(f"/api/runs/{run_id}/nodes/hello_0/items")
     assert items.status_code == 200
@@ -137,6 +152,7 @@ def test_run_emits_event_history():
     run_id = "run-ws-test"
     response = client.post(f"/api/workflows/slow-flow/runs?run_id={run_id}")
     assert response.status_code == 200
+    wait_for_run_status(client, run_id, "completed")
     events = store.event_history[run_id]
 
     event_names = [event["event"] for event in events]
@@ -157,6 +173,7 @@ def test_stream_events_and_recording():
 
     response = client.post("/api/workflows/stream-flow/runs?run_id=stream-run")
     assert response.status_code == 200
+    wait_for_run_status(client, "stream-run", "completed")
 
     events = store.event_history["stream-run"]
     stream_events = [event for event in events if event["event"] == "node_stream"]
@@ -204,6 +221,8 @@ def test_run_history_filters_by_workflow_and_version():
 
     assert run_a.status_code == 200
     assert run_b.status_code == 200
+    wait_for_run_status(client, "hello-run", "completed")
+    wait_for_run_status(client, "stream-run-2", "failed")
 
     all_runs = client.get("/api/runs")
     assert all_runs.status_code == 200
@@ -247,13 +266,15 @@ def test_resume_endpoint_reuses_checkpointed_nodes():
 
     first = client.post("/api/workflows/resume-api-flow/runs?run_id=resume-api-run")
     assert first.status_code == 200
-    assert first.json()["status"] == "failed"
+    assert first.json()["status"] == "pending"
+    wait_for_run_status(client, "resume-api-run", "failed")
     assert state["fetch_calls"] == 1
 
     state["fail"] = False
     resumed = client.post("/api/runs/resume-api-run/resume")
     assert resumed.status_code == 200
-    assert resumed.json()["status"] == "completed"
+    assert resumed.json()["status"] == "pending"
+    wait_for_run_status(client, "resume-api-run", "completed")
     assert state["fetch_calls"] == 1
 
     run = client.get("/api/runs/resume-api-run")

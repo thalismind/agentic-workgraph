@@ -17,7 +17,7 @@ class InMemoryStore:
         self.workflow_versions: dict[str, list[str]] = defaultdict(list)
         self.current_versions: dict[str, str] = {}
         self.workflows: dict[str, object] = {}
-        self.event_subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
+        self.event_subscribers: dict[str, list[tuple[asyncio.Queue, asyncio.AbstractEventLoop]]] = defaultdict(list)
         self.event_history: dict[str, list[dict]] = defaultdict(list)
         self.stream_records: dict[tuple[str, str, int], list[dict]] = defaultdict(list)
         self.trace_spans: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -60,20 +60,23 @@ class InMemoryStore:
 
     def publish_event(self, run_id: str, event: dict) -> None:
         self.event_history[run_id].append(event)
-        for queue in list(self.event_subscribers.get(run_id, [])):
-            queue.put_nowait(event)
+        for queue, loop in list(self.event_subscribers.get(run_id, [])):
+            loop.call_soon_threadsafe(queue.put_nowait, event)
 
     def subscribe(self, run_id: str) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue()
-        self.event_subscribers[run_id].append(queue)
+        loop = asyncio.get_running_loop()
+        self.event_subscribers[run_id].append((queue, loop))
         for event in self.event_history.get(run_id, []):
             queue.put_nowait(event)
         return queue
 
     def unsubscribe(self, run_id: str, queue: asyncio.Queue) -> None:
         subscribers = self.event_subscribers.get(run_id, [])
-        if queue in subscribers:
-            subscribers.remove(queue)
+        for subscriber in list(subscribers):
+            if subscriber[0] is queue:
+                subscribers.remove(subscriber)
+                break
 
     def append_stream_chunk(
         self,

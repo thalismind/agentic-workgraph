@@ -5,6 +5,7 @@ import functools
 import hashlib
 import inspect
 import json
+import threading
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -529,132 +530,135 @@ async def _run_one_item(
                     "workgraph.validation.strategy": node_def.on_validation_fail.value,
                 },
             ) as span:
-                ctx = Context(
-                    run_id=run_id,
-                    node_id=node_instance_id,
-                    node_name=node_def.node_id,
-                    item_index=item_index,
-                    llm_callable=llm_callable,
-                    scratchpad=scratchpad,
-                    errors=error_log,
-                    validation_feedback=validation_feedback,
-                    emit_event=emit_event,
-                    record_stream=record_stream,
-                    report_progress=report_progress,
-                    tracer=tracer,
-                )
-                call = node_def.func(item, ctx=ctx, **extra_args)
-                result = await asyncio.wait_for(call, timeout=node_def.timeout) if node_def.timeout else await call
-                validated = await _validate_output(node_def, result)
-                item_record.output = validated
-                item_record.status = ItemStatus.COMPLETED
-                item_record.progress = max(item_record.progress, 1.0)
-                item_record.finished_at = _now()
-                item_record.duration_ms = _duration_ms(item_record.started_at, item_record.finished_at)
-                counters.completed += 1
-                span.set_attribute("workgraph.node.status", "ok")
-                span.set_attribute("workgraph.validation.passed", True)
-                span.set_attribute("workgraph.validation.errors", "[]")
-                emit_event(
-                    _event(
-                        "validation_result",
-                        run_id,
+                try:
+                    ctx = Context(
+                        run_id=run_id,
                         node_id=node_instance_id,
+                        node_name=node_def.node_id,
                         item_index=item_index,
-                        passed=True,
-                        errors=[],
+                        llm_callable=llm_callable,
+                        scratchpad=scratchpad,
+                        errors=error_log,
+                        validation_feedback=validation_feedback,
+                        emit_event=emit_event,
+                        record_stream=record_stream,
+                        report_progress=report_progress,
+                        tracer=tracer,
                     )
-                )
-                emit_event(
-                    _event(
-                        "node_counters",
-                        run_id,
-                        node_id=node_instance_id,
-                        item_index=item_index,
-                        counters=counters.model_dump(),
+                    call = node_def.func(item, ctx=ctx, **extra_args)
+                    result = await asyncio.wait_for(call, timeout=node_def.timeout) if node_def.timeout else await call
+                    validated = await _validate_output(node_def, result)
+                    item_record.output = validated
+                    item_record.status = ItemStatus.COMPLETED
+                    item_record.progress = max(item_record.progress, 1.0)
+                    item_record.finished_at = _now()
+                    item_record.duration_ms = _duration_ms(item_record.started_at, item_record.finished_at)
+                    counters.completed += 1
+                    span.set_attribute("workgraph.node.status", "ok")
+                    span.set_attribute("workgraph.validation.passed", True)
+                    span.set_attribute("workgraph.validation.errors", "[]")
+                    emit_event(
+                        _event(
+                            "validation_result",
+                            run_id,
+                            node_id=node_instance_id,
+                            item_index=item_index,
+                            passed=True,
+                            errors=[],
+                        )
                     )
-                )
-                return validated
+                    emit_event(
+                        _event(
+                            "node_counters",
+                            run_id,
+                            node_id=node_instance_id,
+                            item_index=item_index,
+                            counters=counters.model_dump(),
+                        )
+                    )
+                    return validated
+                except ValidationError as exc:
+                    last_error = exc
+                    validation_feedback = _format_validation_feedback(exc)
+                    item_record.errors.append(str(exc))
+                    span.set_attribute("workgraph.node.status", "error")
+                    span.set_attribute("workgraph.validation.passed", False)
+                    span.set_attribute("workgraph.validation.errors", json.dumps(exc.errors(include_url=False)))
+                    span.set_status(Status(StatusCode.ERROR, str(exc)))
+                    emit_event(
+                        _event(
+                            "validation_result",
+                            run_id,
+                            node_id=node_instance_id,
+                            item_index=item_index,
+                            passed=False,
+                            errors=exc.errors(include_url=False),
+                        )
+                    )
+                    error_log.append(
+                        NodeError(
+                            run_id=run_id,
+                            node_id=node_def.node_id,
+                            item_index=item_index,
+                            attempt=attempt,
+                            retry_level="item",
+                            error_type="validation",
+                            message=str(exc),
+                            detail={"error": exc.errors(include_url=False)},
+                            node_input={"item": item},
+                        )
+                    )
+                    emit_event(
+                        _event(
+                            "node_error",
+                            run_id,
+                            node_id=node_instance_id,
+                            item_index=item_index,
+                            error_type="validation",
+                            message=str(exc),
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+                    item_record.errors.append(str(exc))
+                    span.set_attribute("workgraph.node.status", "error")
+                    span.set_status(Status(StatusCode.ERROR, str(exc)))
+                    error_log.append(
+                        NodeError(
+                            run_id=run_id,
+                            node_id=node_def.node_id,
+                            item_index=item_index,
+                            attempt=attempt,
+                            retry_level="item",
+                            error_type="exception",
+                            message=str(exc),
+                            detail={"exception_type": exc.__class__.__name__},
+                            node_input={"item": item},
+                        )
+                    )
+                    emit_event(
+                        _event(
+                            "node_error",
+                            run_id,
+                            node_id=node_instance_id,
+                            item_index=item_index,
+                            error_type="exception",
+                            message=str(exc),
+                        )
+                    )
+                finally:
+                    counters.running = max(0, counters.running - 1)
+                    emit_event(
+                        _event(
+                            "node_counters",
+                            run_id,
+                            node_id=node_instance_id,
+                            item_index=item_index,
+                            counters=counters.model_dump(),
+                        )
+                    )
         except ValidationError as exc:
             last_error = exc
-            validation_feedback = _format_validation_feedback(exc)
-            item_record.errors.append(str(exc))
-            span.set_attribute("workgraph.node.status", "error")
-            span.set_attribute("workgraph.validation.passed", False)
-            span.set_attribute("workgraph.validation.errors", json.dumps(exc.errors(include_url=False)))
-            span.set_status(Status(StatusCode.ERROR, str(exc)))
-            emit_event(
-                _event(
-                    "validation_result",
-                    run_id,
-                    node_id=node_instance_id,
-                    item_index=item_index,
-                    passed=False,
-                    errors=exc.errors(include_url=False),
-                )
-            )
-            error_log.append(
-                NodeError(
-                    run_id=run_id,
-                    node_id=node_def.node_id,
-                    item_index=item_index,
-                    attempt=attempt,
-                    retry_level="item",
-                    error_type="validation",
-                    message=str(exc),
-                    detail={"error": exc.errors(include_url=False)},
-                    node_input={"item": item},
-                )
-            )
-            emit_event(
-                _event(
-                    "node_error",
-                    run_id,
-                    node_id=node_instance_id,
-                    item_index=item_index,
-                    error_type="validation",
-                    message=str(exc),
-                )
-            )
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            item_record.errors.append(str(exc))
-            span.set_attribute("workgraph.node.status", "error")
-            span.set_status(Status(StatusCode.ERROR, str(exc)))
-            error_log.append(
-                NodeError(
-                    run_id=run_id,
-                    node_id=node_def.node_id,
-                    item_index=item_index,
-                    attempt=attempt,
-                    retry_level="item",
-                    error_type="exception",
-                    message=str(exc),
-                    detail={"exception_type": exc.__class__.__name__},
-                    node_input={"item": item},
-                )
-            )
-            emit_event(
-                _event(
-                    "node_error",
-                    run_id,
-                    node_id=node_instance_id,
-                    item_index=item_index,
-                    error_type="exception",
-                    message=str(exc),
-                )
-            )
-        finally:
-            counters.running = max(0, counters.running - 1)
-            emit_event(
-                _event(
-                    "node_counters",
-                    run_id,
-                    node_id=node_instance_id,
-                    item_index=item_index,
-                    counters=counters.model_dump(),
-                )
-            )
         if attempt == attempts:
             break
 
@@ -810,6 +814,21 @@ class Executor:
         self.store = store or _DEFAULT_STORE
         self.llm_callable = llm_callable or _default_llm
         self.telemetry = Telemetry(self.store)
+        self._background_threads: set[threading.Thread] = set()
+
+    def _launch_in_thread(self, target: Callable[[], None], *, name: str) -> None:
+        thread: threading.Thread | None = None
+
+        def runner() -> None:
+            try:
+                target()
+            finally:
+                if thread is not None:
+                    self._background_threads.discard(thread)
+
+        thread = threading.Thread(target=runner, name=name, daemon=True)
+        self._background_threads.add(thread)
+        thread.start()
 
     async def run(
         self,
@@ -819,6 +838,25 @@ class Executor:
         **kwargs: Any,
     ) -> RunRecord:
         return await self._run_workflow(workflow_def, args=args, kwargs=kwargs, run_id_override=run_id)
+
+    async def launch(
+        self,
+        workflow_def: WorkflowDefinition,
+        *args: Any,
+        run_id: str | None = None,
+        **kwargs: Any,
+    ) -> RunRecord:
+        record = self._create_run_record(workflow_def, args=args, kwargs=kwargs, run_id_override=run_id)
+        self.store.save_run(record)
+        self.store.publish_event(
+            record.run_id,
+            _event("run_status", record.run_id, status=record.status.value, workflow=workflow_def.name),
+        )
+        self._launch_in_thread(
+            lambda: asyncio.run(self._run_workflow(workflow_def, args=args, kwargs=kwargs, existing_run=record)),
+            name=f"workgraph-run-{record.run_id}",
+        )
+        return record
 
     async def resume(self, run_id: str) -> RunRecord:
         record = self.store.get_run(run_id)
@@ -832,6 +870,57 @@ class Executor:
             kwargs=record.workflow_kwargs,
             existing_run=record,
         )
+
+    async def launch_resume(self, run_id: str) -> RunRecord:
+        record = self.store.get_run(run_id)
+        workflow_def = self.store.get_workflow(record.workflow)
+        current_version = self.store.get_version(record.workflow)
+        if record.version != current_version:
+            raise VersionMismatchError(run_version=record.version, current_version=current_version)
+        record.status = RunStatus.PENDING
+        record.finished_at = None
+        self.store.save_run(record)
+        self.store.publish_event(
+            record.run_id,
+            _event("run_status", record.run_id, status=record.status.value, workflow=workflow_def.name),
+        )
+        self._launch_in_thread(
+            lambda: asyncio.run(
+                self._run_workflow(
+                    workflow_def,
+                    args=record.workflow_args,
+                    kwargs=record.workflow_kwargs,
+                    existing_run=record,
+                )
+            ),
+            name=f"workgraph-resume-{record.run_id}",
+        )
+        return record
+
+    def _create_run_record(
+        self,
+        workflow_def: WorkflowDefinition,
+        *,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        run_id_override: str | None = None,
+    ) -> RunRecord:
+        self.store.register_workflow(workflow_def)
+        graph, _calls = trace_workflow(workflow_def, *args, **kwargs)
+        run_id = run_id_override or uuid4().hex[:12]
+        graph = graph.model_copy(update={"graph_id": f"{workflow_def.name}:{run_id}"})
+        record = RunRecord(
+            run_id=run_id,
+            workflow=workflow_def.name,
+            version=workflow_def.version,
+            status=RunStatus.PENDING,
+            graph=graph,
+            workflow_args=args,
+            workflow_kwargs=kwargs,
+            nodes={node.instance_id: RunNodeState() for node in graph.nodes},
+        )
+        self.store.add_run(record)
+        return record
 
     async def _run_workflow(
         self,
@@ -851,19 +940,8 @@ class Executor:
         tracer = self.telemetry.get_tracer()
         graph, calls = trace_workflow(workflow_def, *args, **kwargs)
         if existing_run is None:
-            run_id = run_id_override or uuid4().hex[:12]
-            graph = graph.model_copy(update={"graph_id": f"{workflow_def.name}:{run_id}"})
-            record = RunRecord(
-                run_id=run_id,
-                workflow=workflow_def.name,
-                version=workflow_def.version,
-                status=RunStatus.RUNNING,
-                graph=graph,
-                workflow_args=args,
-                workflow_kwargs=kwargs,
-                nodes={node.instance_id: RunNodeState() for node in graph.nodes},
-            )
-            self.store.add_run(record)
+            record = self._create_run_record(workflow_def, args=args, kwargs=kwargs, run_id_override=run_id_override)
+            run_id = record.run_id
         else:
             run_id = existing_run.run_id
             record = existing_run
