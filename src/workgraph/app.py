@@ -70,6 +70,23 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None) -> FastAP
     async def get_run_trace(run_id: str):
         return store.get_spans(run_id)
 
+    @app.get("/api/runs/{run_id}/timeline")
+    async def get_run_timeline(run_id: str):
+        try:
+            run = store.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        return [
+            {
+                "node_id": node_id,
+                "status": node.status,
+                "started_at": node.started_at,
+                "finished_at": node.finished_at,
+                "duration_ms": node.duration_ms,
+            }
+            for node_id, node in run.nodes.items()
+        ]
+
     @app.get("/api/runs/{run_id}/errors")
     async def get_run_errors(run_id: str):
         try:

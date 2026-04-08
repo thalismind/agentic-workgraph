@@ -50,6 +50,16 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _duration_ms(started_at: datetime | None, finished_at: datetime | None) -> int | None:
+    if started_at is None or finished_at is None:
+        return None
+    return int((finished_at - started_at).total_seconds() * 1000)
+
+
 def _event(event: str, run_id: str, **payload: Any) -> dict[str, Any]:
     return {
         "event": event,
@@ -354,6 +364,23 @@ async def _run_one_item(
     attempts = node_def.item_retries + 1
     last_error: Exception | None = None
     validation_feedback: str | None = None
+    if item_record.started_at is None:
+        item_record.started_at = _now()
+
+    async def report_progress(progress_value: float, desc: str | None) -> None:
+        item_record.progress = progress_value
+        item_record.progress_desc = desc
+        emit_event(
+            _event(
+                "node_progress",
+                run_id,
+                node_id=node_instance_id,
+                item_index=item_index,
+                progress=progress_value,
+                desc=desc,
+            )
+        )
+
     for attempt in range(1, attempts + 1):
         item_record.status = ItemStatus.RUNNING
         item_record.attempts = attempt
@@ -390,6 +417,7 @@ async def _run_one_item(
                     validation_feedback=validation_feedback,
                     emit_event=emit_event,
                     record_stream=record_stream,
+                    report_progress=report_progress,
                     tracer=tracer,
                 )
                 call = node_def.func(item, ctx=ctx, **extra_args)
@@ -397,6 +425,9 @@ async def _run_one_item(
                 validated = await _validate_output(node_def, result)
                 item_record.output = validated
                 item_record.status = ItemStatus.COMPLETED
+                item_record.progress = max(item_record.progress, 1.0)
+                item_record.finished_at = _now()
+                item_record.duration_ms = _duration_ms(item_record.started_at, item_record.finished_at)
                 counters.completed += 1
                 span.set_attribute("workgraph.node.status", "ok")
                 span.set_attribute("workgraph.validation.passed", True)
@@ -486,6 +517,9 @@ async def _run_one_item(
     if node_def.on_validation_fail is ValidationFailStrategy.FALLBACK:
         item_record.output = node_def.fallback_value
         item_record.status = ItemStatus.COMPLETED
+        item_record.progress = max(item_record.progress, 1.0)
+        item_record.finished_at = _now()
+        item_record.duration_ms = _duration_ms(item_record.started_at, item_record.finished_at)
         counters.completed += 1
         emit_event(
             _event(
@@ -500,6 +534,8 @@ async def _run_one_item(
     if last_error is None:
         raise RuntimeError(f"Node {node_def.node_id} failed without an error")
     item_record.status = ItemStatus.FAILED
+    item_record.finished_at = _now()
+    item_record.duration_ms = _duration_ms(item_record.started_at, item_record.finished_at)
     counters.failed += 1
     emit_event(
         _event(
@@ -708,6 +744,9 @@ class Executor:
                         record.outputs[call.instance_id] = state.checkpoint
                         continue
                     state.status = NodeStatus.RUNNING
+                    state.started_at = _now()
+                    state.finished_at = None
+                    state.duration_ms = None
                     emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
                     state.errors = []
                     materialized = {key: _materialize_arg(value, outputs) for key, value in call.bound_args.items()}
@@ -739,6 +778,8 @@ class Executor:
                     state.output = result
                     state.checkpoint = result
                     state.status = NodeStatus.COMPLETED
+                    state.finished_at = _now()
+                    state.duration_ms = _duration_ms(state.started_at, state.finished_at)
                     state.counters.completed = state.counters.total
                     state.counters.pending = 0
                     emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
@@ -752,6 +793,8 @@ class Executor:
                 record.status = RunStatus.FAILED
                 state = record.nodes[call.instance_id]
                 state.status = NodeStatus.FAILED
+                state.finished_at = _now()
+                state.duration_ms = _duration_ms(state.started_at, state.finished_at)
                 state.errors.append(str(exc))
                 record.outputs = outputs
                 record.errors = error_log

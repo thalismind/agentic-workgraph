@@ -125,3 +125,34 @@ async def test_version_listing_and_resume_mismatch():
         assert exc.current_version == versioned_v2.version
     else:
         raise AssertionError("Expected VersionMismatchError")
+
+
+@node(id="progress_node")
+async def progress_node(value: str, ctx):
+    async with ctx.progress(desc="working") as progress:
+        await progress.update(0.25)
+        await progress.update(0.75)
+    return value.upper()
+
+
+@workflow(name="progress-flow")
+def progress_flow():
+    return progress_node(value=["a"])
+
+
+async def test_progress_and_timing_are_recorded():
+    executor = Executor()
+    run = await executor.run(progress_flow, run_id="progress-run")
+
+    node = run.nodes["progress_node_0"]
+    item = node.items[0]
+
+    assert run.status == "completed"
+    assert node.duration_ms is not None
+    assert node.started_at is not None
+    assert node.finished_at is not None
+    assert item.progress == 1.0
+    assert item.progress_desc == "working"
+    assert item.duration_ms is not None
+    progress_events = [event for event in executor.store.event_history["progress-run"] if event["event"] == "node_progress"]
+    assert [event["progress"] for event in progress_events] == [0.25, 1.0]

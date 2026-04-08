@@ -29,9 +29,12 @@ class Scratchpad:
 class ProgressHandle:
     desc: str | None = None
     value: float = 0.0
+    reporter: Callable[[float, str | None], Any] | None = None
 
     async def update(self, amount: float) -> None:
         self.value += amount
+        if self.reporter is not None:
+            await self.reporter(self.value, self.desc)
 
 
 class Context:
@@ -48,6 +51,7 @@ class Context:
         validation_feedback: str | None = None,
         emit_event: Callable[[dict[str, Any]], None] | None = None,
         record_stream: Callable[[str, int], dict[str, Any]] | None = None,
+        report_progress: Callable[[float, str | None], Any] | None = None,
         tracer=None,
     ) -> None:
         self.run_id = run_id
@@ -60,6 +64,7 @@ class Context:
         self._validation_feedback = validation_feedback
         self._emit_event = emit_event or (lambda _event: None)
         self._record_stream = record_stream or (lambda _token, _item_index: {})
+        self._report_progress = report_progress
         self._tracer = tracer
 
     async def llm(self, *, prompt: str, **kwargs: Any) -> Any:
@@ -126,7 +131,7 @@ class Context:
 
     @asynccontextmanager
     async def progress(self, desc: str | None = None):
-        yield ProgressHandle(desc=desc)
+        yield ProgressHandle(desc=desc, reporter=self._report_progress)
 
     async def get_errors(self, node_id: str | None = None) -> list[NodeError]:
         if node_id is None:

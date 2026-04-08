@@ -55,6 +55,9 @@ class NodeSpec(BaseModel):
     item_retries: int = 0
     status: NodeStatus = NodeStatus.PENDING
     counters: NodeCounters = Field(default_factory=NodeCounters)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
 
 
 class EdgeSpec(BaseModel):
@@ -104,6 +107,10 @@ class ItemRecord(BaseModel):
     errors: list[str] = Field(default_factory=list)
     attempts: int = 0
     progress: float = 0.0
+    progress_desc: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
 
 
 class StreamChunk(BaseModel):
@@ -124,6 +131,9 @@ class RunNodeState(BaseModel):
     errors: list[str] = Field(default_factory=list)
     checkpoint: list[Any] | None = None
     items: list[ItemRecord] = Field(default_factory=list)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
 
 
 class RunRecord(BaseModel):

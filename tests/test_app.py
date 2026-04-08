@@ -41,17 +41,16 @@ def test_app_exposes_workflow_graph():
 
     items = client.get(f"/api/runs/{run_id}/nodes/hello_0/items")
     assert items.status_code == 200
-    assert items.json() == [
-        {
-            "attempts": 1,
-            "errors": [],
-            "index": 0,
-            "input": "world",
-            "output": "hello world",
-            "progress": 0.0,
-            "status": "completed",
-        }
-    ]
+    item_payload = items.json()[0]
+    assert item_payload["attempts"] == 1
+    assert item_payload["errors"] == []
+    assert item_payload["index"] == 0
+    assert item_payload["input"] == "world"
+    assert item_payload["output"] == "hello world"
+    assert item_payload["progress"] == 1.0
+    assert item_payload["status"] == "completed"
+    assert item_payload["started_at"] is not None
+    assert item_payload["finished_at"] is not None
 
     item = client.get(f"/api/runs/{run_id}/nodes/hello_0/items/0")
     assert item.status_code == 200
@@ -130,3 +129,10 @@ def test_stream_events_and_recording():
     llm_span = next(span for span in spans if span["name"] == "llm.complete")
     assert llm_span["attributes"]["workgraph.run.id"] == "stream-run"
     assert llm_span["attributes"]["workgraph.node.instance_id"] == "stream_hello_0"
+
+    timeline = client.get("/api/runs/stream-run/timeline")
+    assert timeline.status_code == 200
+    row = next(item for item in timeline.json() if item["node_id"] == "stream_hello_0")
+    assert row["duration_ms"] is not None
+    assert row["started_at"] is not None
+    assert row["finished_at"] is not None
