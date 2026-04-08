@@ -49,8 +49,8 @@ function formatStarted(startedAt) {
 }
 
 function formatNodeLabel(nodeId, maxLength = 20) {
-  if (nodeId.length <= maxLength) return nodeId;
-  return `${nodeId.slice(0, maxLength - 1)}…`;
+  if (nodeId.length <= maxLength) return { text: nodeId, truncated: false };
+  return { text: `${nodeId.slice(0, maxLength - 1)}…`, truncated: true };
 }
 
 function setActiveButton(container, activeValue) {
@@ -336,14 +336,24 @@ function renderGraph() {
     clipPath.append(clipRect);
     svg.append(clipPath);
 
+    const label = formatNodeLabel(node.node_id);
     const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
     title.setAttribute("x", String(x + 12));
     title.setAttribute("y", String(y + 23));
     title.setAttribute("font-size", "13");
     title.setAttribute("font-weight", "700");
     title.setAttribute("clip-path", `url(#${clipId})`);
-    title.textContent = formatNodeLabel(node.node_id);
+    title.textContent = label.text;
     group.append(title);
+
+    if (label.truncated) {
+      const truncateBadge = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      truncateBadge.setAttribute("cx", String(x + 138));
+      truncateBadge.setAttribute("cy", String(y + 18));
+      truncateBadge.setAttribute("r", "4");
+      truncateBadge.setAttribute("class", "graph-truncate-indicator");
+      group.append(truncateBadge);
+    }
 
     if (streaming) {
       const typing = document.createElementNS("http://www.w3.org/2000/svg", "text");

@@ -314,6 +314,10 @@ h1 {
   fill: #8a6420;
 }
 
+.graph-truncate-indicator {
+  fill: rgba(10, 74, 60, 0.72);
+}
+
 .graph-node {
   cursor: pointer;
 }
