@@ -73,6 +73,7 @@ class GraphSpec(BaseModel):
     version: str
     nodes: list[NodeSpec]
     edges: list[EdgeSpec]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class NodeCall(BaseModel):

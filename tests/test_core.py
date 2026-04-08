@@ -156,3 +156,73 @@ async def test_progress_and_timing_are_recorded():
     assert item.duration_ms is not None
     progress_events = [event for event in executor.store.event_history["progress-run"] if event["event"] == "node_progress"]
     assert [event["progress"] for event in progress_events] == [0.25, 1.0]
+
+
+@node(id="branch_source")
+async def branch_source(value: str, ctx):
+    return value
+
+
+@node(id="branch_true")
+async def branch_true(value: str, ctx):
+    return f"true:{value}"
+
+
+@node(id="branch_false")
+async def branch_false(value: str, ctx):
+    return f"false:{value}"
+
+
+@workflow(name="branch-truthy", trace_branches="truthy")
+def branch_truthy():
+    value = branch_source(value=["x"])
+    if value:
+        return branch_true(value=value)
+    return branch_false(value=value)
+
+
+@workflow(name="branch-falsy", trace_branches="falsy")
+def branch_falsy():
+    value = branch_source(value=["x"])
+    if value:
+        return branch_true(value=value)
+    return branch_false(value=value)
+
+
+@workflow(name="branch-all", trace_branches="all")
+def branch_all():
+    value = branch_source(value=["x"])
+    if value:
+        return branch_true(value=value)
+    return branch_false(value=value)
+
+
+async def test_trace_branch_modes_record_warnings():
+    truthy_graph, _ = trace_workflow(branch_truthy)
+    falsy_graph, _ = trace_workflow(branch_falsy)
+    all_graph, _ = trace_workflow(branch_all)
+
+    assert [node.node_id for node in truthy_graph.nodes] == ["branch_source", "branch_true"]
+    assert [node.node_id for node in falsy_graph.nodes] == ["branch_source", "branch_false"]
+    assert any("Boolean condition on traced node" in warning for warning in truthy_graph.warnings)
+    assert any("trace_branches='all'" in warning for warning in all_graph.warnings)
+
+
+@node(id="looped")
+async def looped(value: str, ctx):
+    return value
+
+
+@workflow(name="loop-warning", max_loop_iterations=2)
+def loop_warning():
+    value = ["x"]
+    for _ in range(3):
+        value = looped(value=value)
+    return value
+
+
+async def test_trace_warns_when_node_repeats_beyond_loop_limit():
+    graph, _ = trace_workflow(loop_warning)
+
+    assert [node.node_id for node in graph.nodes] == ["looped", "looped", "looped"]
+    assert any("max_loop_iterations=2" in warning for warning in graph.warnings)

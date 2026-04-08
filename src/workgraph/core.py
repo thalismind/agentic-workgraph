@@ -108,6 +108,8 @@ class WorkflowDefinition:
     default_model: str | None = None
     redis_url: str | None = None
     redis_ttl_days: int = 7
+    trace_branches: str = "truthy"
+    max_loop_iterations: int = 5
     stream_delay_ms: int = 50
     stream_max_messages: int = 500
     stream_ttl_hours: int = 24
@@ -131,7 +133,17 @@ class NodeProxy:
     call_args: dict[str, Any]
 
     def __bool__(self) -> bool:
-        return True
+        trace_state = _TRACE_STATE.get()
+        if trace_state is None:
+            return True
+        if not trace_state.bool_warning_emitted:
+            trace_state.warnings.append(
+                f"Boolean condition on traced node '{self.instance_id}' evaluated as "
+                f"{'truthy' if trace_state.bool_mode else 'falsy'} "
+                f"(trace_branches={trace_state.workflow.trace_branches})."
+            )
+            trace_state.bool_warning_emitted = True
+        return trace_state.bool_mode
 
 
 @dataclass
@@ -139,10 +151,20 @@ class TraceState:
     workflow: WorkflowDefinition
     calls: list[NodeCall] = field(default_factory=list)
     counters: dict[str, int] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    bool_mode: bool = True
+    bool_warning_emitted: bool = False
 
     def next_instance_id(self, node_id: str) -> str:
         count = self.counters.get(node_id, 0)
         self.counters[node_id] = count + 1
+        if count + 1 > self.workflow.max_loop_iterations:
+            warning = (
+                f"Node '{node_id}' was traced {count + 1} times, exceeding "
+                f"max_loop_iterations={self.workflow.max_loop_iterations}."
+            )
+            if warning not in self.warnings:
+                self.warnings.append(warning)
         return f"{node_id}_{count}"
 
     def register_call(self, node_def: NodeDefinition, bound_args: dict[str, Any]) -> NodeProxy:
@@ -237,6 +259,8 @@ def workflow(
     default_model: str | None = None,
     redis_url: str | None = None,
     redis_ttl_days: int = 7,
+    trace_branches: str = "truthy",
+    max_loop_iterations: int = 5,
     stream_delay_ms: int = 50,
     stream_max_messages: int = 500,
     stream_ttl_hours: int = 24,
@@ -250,6 +274,8 @@ def workflow(
             default_model=default_model,
             redis_url=redis_url,
             redis_ttl_days=redis_ttl_days,
+            trace_branches=trace_branches,
+            max_loop_iterations=max_loop_iterations,
             stream_delay_ms=stream_delay_ms,
             stream_max_messages=stream_max_messages,
             stream_ttl_hours=stream_ttl_hours,
@@ -271,6 +297,8 @@ def compute_workflow_version(workflow_def: WorkflowDefinition) -> str:
             "default_model": workflow_def.default_model,
             "redis_url": workflow_def.redis_url,
             "redis_ttl_days": workflow_def.redis_ttl_days,
+            "trace_branches": workflow_def.trace_branches,
+            "max_loop_iterations": workflow_def.max_loop_iterations,
             "stream_delay_ms": workflow_def.stream_delay_ms,
             "stream_max_messages": workflow_def.stream_max_messages,
             "stream_ttl_hours": workflow_def.stream_ttl_hours,
@@ -305,12 +333,16 @@ def _referenced_node_payloads(func: Callable[..., Any]) -> list[dict[str, Any]]:
 
 
 def trace_workflow(workflow_def: WorkflowDefinition, *args: Any, **kwargs: Any) -> tuple[GraphSpec, list[NodeCall]]:
-    trace_state = TraceState(workflow=workflow_def)
+    bool_mode = workflow_def.trace_branches != "falsy"
+    trace_state = TraceState(workflow=workflow_def, bool_mode=bool_mode)
     token = _TRACE_STATE.set(trace_state)
     try:
         workflow_def(*args, **kwargs)
     finally:
         _TRACE_STATE.reset(token)
+
+    if workflow_def.trace_branches == "all":
+        trace_state.warnings.append("trace_branches='all' is not fully implemented yet; tracing the truthy path.")
 
     nodes = [
         NodeSpec(
@@ -335,6 +367,7 @@ def trace_workflow(workflow_def: WorkflowDefinition, *args: Any, **kwargs: Any) 
         version=workflow_def.version,
         nodes=nodes,
         edges=edges,
+        warnings=trace_state.warnings,
     )
     return graph, trace_state.calls
 
