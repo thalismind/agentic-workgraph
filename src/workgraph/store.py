@@ -28,10 +28,14 @@ class InMemoryStore:
     def get_run(self, run_id: str) -> RunRecord:
         return self.runs[run_id]
 
-    def list_runs(self, workflow: str | None = None) -> list[RunRecord]:
+    def list_runs(self, workflow: str | None = None, version: str | None = None) -> list[RunRecord]:
         if workflow is None:
-            return list(self.runs.values())
-        return [self.runs[run_id] for run_id in self.workflow_runs.get(workflow, [])]
+            runs = list(self.runs.values())
+        else:
+            runs = [self.runs[run_id] for run_id in self.workflow_runs.get(workflow, [])]
+        if version is not None:
+            runs = [run for run in runs if run.version == version]
+        return runs
 
     def register_workflow(self, workflow) -> None:
         self.workflows[workflow.name] = workflow
@@ -120,12 +124,16 @@ class RedisStore(InMemoryStore):
         self.runs[run_id] = run
         return run
 
-    def list_runs(self, workflow: str | None = None) -> list[RunRecord]:
+    def list_runs(self, workflow: str | None = None, version: str | None = None) -> list[RunRecord]:
         if workflow is None:
             run_ids = sorted(self.redis.keys("run:*"))
-            return [self.get_run(run_id.split(":", 1)[1]) for run_id in run_ids]
-        run_ids = self.redis.smembers(f"workflow:{workflow}:runs")
-        return [self.get_run(run_id) for run_id in sorted(run_ids)]
+            runs = [self.get_run(run_id.split(":", 1)[1]) for run_id in run_ids]
+        else:
+            run_ids = self.redis.smembers(f"workflow:{workflow}:runs")
+            runs = [self.get_run(run_id) for run_id in sorted(run_ids)]
+        if version is not None:
+            runs = [run for run in runs if run.version == version]
+        return runs
 
     def register_workflow(self, workflow) -> None:
         super().register_workflow(workflow)

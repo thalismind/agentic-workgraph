@@ -136,3 +136,61 @@ def test_stream_events_and_recording():
     assert row["duration_ms"] is not None
     assert row["started_at"] is not None
     assert row["finished_at"] is not None
+
+
+def test_run_history_filters_by_workflow_and_version():
+    app = create_app(workflows=[hello_flow, stream_flow])
+    client = TestClient(app)
+
+    run_a = client.post("/api/workflows/hello-flow/runs?run_id=hello-run")
+    run_b = client.post("/api/workflows/stream-flow/runs?run_id=stream-run-2")
+
+    assert run_a.status_code == 200
+    assert run_b.status_code == 200
+
+    all_runs = client.get("/api/runs")
+    assert all_runs.status_code == 200
+    assert {run["run_id"] for run in all_runs.json()} >= {"hello-run", "stream-run-2"}
+
+    hello_runs = client.get(f"/api/runs?workflow=hello-flow&version={hello_flow.version}")
+    assert hello_runs.status_code == 200
+    assert [run["run_id"] for run in hello_runs.json()] == ["hello-run"]
+
+
+def test_resume_endpoint_reuses_checkpointed_nodes():
+    state = {"fetch_calls": 0, "render_calls": 0, "fail": True}
+
+    @node(id="resume_fetch_api")
+    async def resume_fetch_api(seed: str, ctx):
+        state["fetch_calls"] += 1
+        return [seed, f"{seed}!"]
+
+    @node(id="resume_render_api")
+    async def resume_render_api(text: str, ctx):
+        state["render_calls"] += 1
+        if state["fail"]:
+            raise RuntimeError("boom")
+        return text.upper()
+
+    @workflow(name="resume-api-flow")
+    def resume_api_flow():
+        items = resume_fetch_api(seed=["go"])
+        return resume_render_api(text=items)
+
+    app = create_app(workflows=[resume_api_flow])
+    client = TestClient(app)
+
+    first = client.post("/api/workflows/resume-api-flow/runs?run_id=resume-api-run")
+    assert first.status_code == 200
+    assert first.json()["status"] == "failed"
+    assert state["fetch_calls"] == 1
+
+    state["fail"] = False
+    resumed = client.post("/api/runs/resume-api-run/resume")
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "completed"
+    assert state["fetch_calls"] == 1
+
+    run = client.get("/api/runs/resume-api-run")
+    assert run.status_code == 200
+    assert run.json()["outputs"]["resume_render_api_0"] == ["GO", "GO!"]

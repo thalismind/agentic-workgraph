@@ -55,8 +55,8 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
         }
 
     @app.get("/api/runs")
-    async def list_runs():
-        return [run.model_dump(mode="json") for run in store.list_runs()]
+    async def list_runs(workflow: str | None = None, version: str | None = None):
+        return [run.model_dump(mode="json") for run in store.list_runs(workflow=workflow, version=version)]
 
     @app.get("/api/runs/{run_id}")
     async def get_run(run_id: str):
@@ -65,6 +65,19 @@ def create_app(*, workflows: list, store: InMemoryStore | None = None, redis_url
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
         return run.model_dump(mode="json")
+
+    @app.post("/api/runs/{run_id}/resume")
+    async def resume_run(run_id: str):
+        try:
+            run = await executor.resume(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        return {
+            "run_id": run.run_id,
+            "status": run.status,
+            "workflow": run.workflow,
+            "version": run.version,
+        }
 
     @app.get("/api/runs/{run_id}/trace")
     async def get_run_trace(run_id: str):
