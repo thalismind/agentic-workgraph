@@ -151,6 +151,7 @@ class TraceState:
     workflow: WorkflowDefinition
     calls: list[NodeCall] = field(default_factory=list)
     counters: dict[str, int] = field(default_factory=dict)
+    loop_group_counters: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     bool_mode: bool = True
     bool_warning_emitted: bool = False
@@ -170,13 +171,31 @@ class TraceState:
     def register_call(self, node_def: NodeDefinition, bound_args: dict[str, Any]) -> NodeProxy:
         depends_on = sorted(_collect_dependencies(bound_args))
         instance_id = self.next_instance_id(node_def.node_id)
+        display_id = instance_id
+        iteration_index = 0
+        if self.calls:
+            previous = self.calls[-1]
+            if previous.node_id == node_def.node_id and depends_on == [previous.instance_id]:
+                if previous.display_id == previous.instance_id:
+                    loop_group_index = self.loop_group_counters.get(node_def.node_id, 0)
+                    self.loop_group_counters[node_def.node_id] = loop_group_index + 1
+                    previous.display_id = f"{node_def.node_id}_loop_{loop_group_index}"
+                    previous.iteration_index = 0
+                    if not any(previous.display_id in warning for warning in self.warnings):
+                        self.warnings.append(
+                            f"Collapsed repeated '{node_def.node_id}' calls into loop node '{previous.display_id}'."
+                        )
+                display_id = previous.display_id
+                iteration_index = previous.iteration_index + 1
         self.calls.append(
             NodeCall(
                 instance_id=instance_id,
+                display_id=display_id,
                 node_id=node_def.node_id,
                 depends_on=depends_on,
                 bound_args=bound_args,
                 node_def=node_def,
+                iteration_index=iteration_index,
             )
         )
         return NodeProxy(
@@ -357,23 +376,48 @@ def _trace_pass(workflow_def: WorkflowDefinition, *args: Any, bool_mode: bool, *
 
 
 def _build_graph_spec(workflow_def: WorkflowDefinition, trace_state: TraceState) -> GraphSpec:
-    nodes = [
-        NodeSpec(
-            instance_id=call.instance_id,
-            node_id=call.node_id,
-            depends_on=call.depends_on,
-            concurrency=call.node_def.concurrency,
-            output_schema=_schema_name(call.node_def.output_schema),
-            retries=call.node_def.retries,
-            item_retries=call.node_def.item_retries,
-        )
-        for call in trace_state.calls
-    ]
-    edges = [
-        EdgeSpec.model_validate({"from": dep, "to": call.instance_id})
-        for call in trace_state.calls
-        for dep in call.depends_on
-    ]
+    nodes: list[NodeSpec] = []
+    node_index: dict[str, NodeSpec] = {}
+    for call in trace_state.calls:
+        spec = node_index.get(call.display_id)
+        if spec is None:
+            spec = NodeSpec(
+                instance_id=call.display_id,
+                node_id=call.node_id,
+                depends_on=[],
+                concurrency=call.node_def.concurrency,
+                output_schema=_schema_name(call.node_def.output_schema),
+                retries=call.node_def.retries,
+                item_retries=call.node_def.item_retries,
+                loop_member_ids=[call.instance_id],
+            )
+            node_index[call.display_id] = spec
+            nodes.append(spec)
+        else:
+            spec.loop_member_ids.append(call.instance_id)
+        if len(spec.loop_member_ids) > 1:
+            spec.loop_iterations = len(spec.loop_member_ids)
+
+    call_to_display = {call.instance_id: call.display_id for call in trace_state.calls}
+    edge_keys: set[tuple[str, str]] = set()
+    edges: list[EdgeSpec] = []
+    for call in trace_state.calls:
+        spec = node_index[call.display_id]
+        display_deps = []
+        for dep in call.depends_on:
+            display_dep = call_to_display.get(dep, dep)
+            if display_dep == call.display_id:
+                continue
+            if display_dep not in display_deps:
+                display_deps.append(display_dep)
+        for dep in display_deps:
+            if dep not in spec.depends_on:
+                spec.depends_on.append(dep)
+            key = (dep, call.display_id)
+            if key in edge_keys:
+                continue
+            edge_keys.add(key)
+            edges.append(EdgeSpec.model_validate({"from": dep, "to": call.display_id}))
     graph = GraphSpec(
         graph_id=f"{workflow_def.name}:{uuid4().hex[:12]}",
         workflow=workflow_def.name,
@@ -669,14 +713,15 @@ async def _run_node(
     items = materialized_args.pop(item_param)
     if not isinstance(items, list):
         raise TypeError(f"Node {node_def.node_id} expected list input for '{item_param}'")
-    if not node_state.items:
-        node_state.items = [ItemRecord(index=index, input=item) for index, item in enumerate(items)]
+    item_offset = len(node_state.items)
+    item_records = [ItemRecord(index=item_offset + index, input=item) for index, item in enumerate(items)]
+    node_state.items.extend(item_records)
 
     def make_stream_recorder(item_index: int):
         def record_stream(token: str, _item_index: int) -> dict[str, Any]:
             return store.append_stream_chunk(
                 run_id=run_id,
-                node_id=call.instance_id,
+                node_id=call.display_id,
                 item_index=item_index,
                 token=token,
                 max_messages=stream_max_messages,
@@ -693,16 +738,16 @@ async def _run_node(
                     node_def,
                     item=item,
                     extra_args=materialized_args,
-                    node_instance_id=call.instance_id,
+                    node_instance_id=call.display_id,
                     run_id=run_id,
-                    item_index=index,
+                    item_index=item_offset + index,
                     llm_callable=llm_callable,
                     scratchpad=scratchpad,
                     error_log=error_log,
-                    item_record=node_state.items[index],
+                    item_record=item_records[index],
                     counters=node_state.counters,
                     emit_event=emit_event,
-                    record_stream=make_stream_recorder(index),
+                    record_stream=make_stream_recorder(item_offset + index),
                     tracer=tracer,
                 )
             )
@@ -716,16 +761,16 @@ async def _run_node(
                 node_def,
                 item=item,
                 extra_args=materialized_args,
-                node_instance_id=call.instance_id,
+                node_instance_id=call.display_id,
                 run_id=run_id,
-                item_index=index,
+                item_index=item_offset + index,
                 llm_callable=llm_callable,
                 scratchpad=scratchpad,
                 error_log=error_log,
-                item_record=node_state.items[index],
+                item_record=item_records[index],
                 counters=node_state.counters,
                 emit_event=emit_event,
-                record_stream=make_stream_recorder(index),
+                record_stream=make_stream_recorder(item_offset + index),
                 tracer=tracer,
             )
         async with semaphore:
@@ -733,16 +778,16 @@ async def _run_node(
                 node_def,
                 item=item,
                 extra_args=materialized_args,
-                node_instance_id=call.instance_id,
+                node_instance_id=call.display_id,
                 run_id=run_id,
-                item_index=index,
+                item_index=item_offset + index,
                 llm_callable=llm_callable,
                 scratchpad=scratchpad,
                 error_log=error_log,
-                item_record=node_state.items[index],
+                item_record=item_records[index],
                 counters=node_state.counters,
                 emit_event=emit_event,
-                record_stream=make_stream_recorder(index),
+                record_stream=make_stream_recorder(item_offset + index),
                 tracer=tracer,
             )
 
@@ -846,28 +891,28 @@ class Executor:
 
             try:
                 for call in calls:
-                    state = record.nodes[call.instance_id]
-                    if state.status is NodeStatus.COMPLETED and state.checkpoint is not None:
-                        outputs[call.instance_id] = state.checkpoint
-                        record.outputs[call.instance_id] = state.checkpoint
+                    state = record.nodes[call.display_id]
+                    if call.instance_id in outputs:
                         continue
+                    if call.iteration_index == 0:
+                        state.counters = NodeCounters()
+                        state.items = []
+                        state.output = None
+                        state.checkpoint = None
+                        state.started_at = _now()
+                        state.loop_iteration = 0
                     state.status = NodeStatus.RUNNING
-                    state.started_at = _now()
                     state.finished_at = None
                     state.duration_ms = None
-                    emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
-                    state.errors = []
+                    state.loop_iteration = max(state.loop_iteration, call.iteration_index + 1)
+                    emit_event(_event("node_status", run_id, node_id=call.display_id, status=state.status.value, attempt=1))
+                    if call.iteration_index == 0:
+                        state.errors = []
                     materialized = {key: _materialize_arg(value, outputs) for key, value in call.bound_args.items()}
                     item_param = next(iter(call.node_def.signature.parameters))
                     items = materialized[item_param]
-                    state.counters = NodeCounters(
-                        total=len(items),
-                        pending=len(items),
-                        running=0,
-                        completed=0,
-                        failed=0,
-                    )
-                    state.items = [ItemRecord(index=index, input=item) for index, item in enumerate(items)]
+                    state.counters.total += len(items)
+                    state.counters.pending += len(items)
                     result = await _run_node(
                         call,
                         materialized_args=materialized,
@@ -889,10 +934,8 @@ class Executor:
                     state.status = NodeStatus.COMPLETED
                     state.finished_at = _now()
                     state.duration_ms = _duration_ms(state.started_at, state.finished_at)
-                    state.counters.completed = state.counters.total
-                    state.counters.pending = 0
-                    emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
-                    emit_event(_event("node_output", run_id, node_id=call.instance_id, output=result))
+                    emit_event(_event("node_status", run_id, node_id=call.display_id, status=state.status.value, attempt=1))
+                    emit_event(_event("node_output", run_id, node_id=call.display_id, output=result))
                     self.store.save_run(record)
                 record.status = RunStatus.COMPLETED
                 record.outputs = outputs
@@ -901,7 +944,7 @@ class Executor:
                 emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
             except Exception as exc:  # noqa: BLE001
                 record.status = RunStatus.FAILED
-                state = record.nodes[call.instance_id]
+                state = record.nodes[call.display_id]
                 state.status = NodeStatus.FAILED
                 state.finished_at = _now()
                 state.duration_ms = _duration_ms(state.started_at, state.finished_at)
@@ -910,7 +953,7 @@ class Executor:
                 record.errors = error_log
                 run_span.set_attribute("workgraph.run.status", "error")
                 run_span.set_status(Status(StatusCode.ERROR, str(exc)))
-                emit_event(_event("node_status", run_id, node_id=call.instance_id, status=state.status.value, attempt=1))
+                emit_event(_event("node_status", run_id, node_id=call.display_id, status=state.status.value, attempt=1))
                 emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
             finally:
                 record.finished_at = record.finished_at or datetime.now(timezone.utc)

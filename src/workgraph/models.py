@@ -53,6 +53,8 @@ class NodeSpec(BaseModel):
     output_schema: str | None = None
     retries: int = 0
     item_retries: int = 0
+    loop_iterations: int | None = None
+    loop_member_ids: list[str] = Field(default_factory=list)
     status: NodeStatus = NodeStatus.PENDING
     counters: NodeCounters = Field(default_factory=NodeCounters)
     started_at: datetime | None = None
@@ -80,10 +82,12 @@ class NodeCall(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     instance_id: str
+    display_id: str
     node_id: str
     depends_on: list[str]
     bound_args: dict[str, Any]
     node_def: Any
+    iteration_index: int = 0
 
 
 class NodeError(BaseModel):
@@ -132,6 +136,7 @@ class RunNodeState(BaseModel):
     errors: list[str] = Field(default_factory=list)
     checkpoint: list[Any] | None = None
     items: list[ItemRecord] = Field(default_factory=list)
+    loop_iteration: int = 0
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_ms: int | None = None

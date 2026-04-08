@@ -261,6 +261,25 @@ function renderGraph() {
   }
 
   for (const node of state.graph.nodes) {
+    if (!node.loop_iterations || node.loop_iterations < 2) continue;
+    const { x, y } = layout.positions.get(node.instance_id);
+    const loopPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    loopPath.setAttribute(
+      "d",
+      `M ${x + 34} ${y + 8} C ${x - 28} ${y - 34}, ${x + 178} ${y - 34}, ${x + 116} ${y + 8}`,
+    );
+    loopPath.setAttribute("class", "graph-loop-edge");
+    svg.append(loopPath);
+
+    const loopLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    loopLabel.setAttribute("x", String(x + 56));
+    loopLabel.setAttribute("y", String(y - 14));
+    loopLabel.setAttribute("class", "graph-loop-label");
+    loopLabel.textContent = `↺ ${node.loop_iterations}x`;
+    svg.append(loopLabel);
+  }
+
+  for (const node of state.graph.nodes) {
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     const runtime = getNodeRuntime(node.instance_id);
     const status = runtime?.status ?? node.status ?? "pending";
@@ -306,7 +325,7 @@ function renderGraph() {
     meta.setAttribute("font-size", "11");
     meta.textContent = counters && counters.total > 1
       ? `✓ ${counters.completed} · ▸ ${counters.running} · ✗ ${counters.failed}`
-      : status;
+      : (node.loop_iterations && node.loop_iterations > 1 ? `loop ${node.loop_iterations}x · ${status}` : status);
     group.append(meta);
 
     const badge = document.createElementNS("http://www.w3.org/2000/svg", "text");

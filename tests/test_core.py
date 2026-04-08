@@ -236,7 +236,22 @@ def loop_warning():
 
 
 async def test_trace_warns_when_node_repeats_beyond_loop_limit():
-    graph, _ = trace_workflow(loop_warning)
+    graph, calls = trace_workflow(loop_warning)
 
-    assert [node.node_id for node in graph.nodes] == ["looped", "looped", "looped"]
+    assert [call.instance_id for call in calls] == ["looped_0", "looped_1", "looped_2"]
+    assert [node.instance_id for node in graph.nodes] == ["looped_loop_0"]
+    assert graph.nodes[0].node_id == "looped"
+    assert graph.nodes[0].loop_iterations == 3
+    assert graph.nodes[0].loop_member_ids == ["looped_0", "looped_1", "looped_2"]
     assert any("max_loop_iterations=2" in warning for warning in graph.warnings)
+
+
+async def test_loop_runs_share_one_display_node():
+    executor = Executor()
+    run = await executor.run(loop_warning, run_id="loop-run")
+
+    assert run.status == "completed"
+    assert "looped_loop_0" in run.nodes
+    assert run.nodes["looped_loop_0"].loop_iteration == 3
+    assert len(run.nodes["looped_loop_0"].items) == 3
+    assert run.outputs["looped_2"] == ["x"]

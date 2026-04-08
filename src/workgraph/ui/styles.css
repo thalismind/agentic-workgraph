@@ -299,6 +299,21 @@ h1 {
   height: 210px;
 }
 
+.graph-loop-edge {
+  fill: none;
+  stroke: rgba(191, 139, 48, 0.85);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 4;
+}
+
+.graph-loop-label {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  fill: #8a6420;
+}
+
 .graph-node {
   cursor: pointer;
 }
