@@ -277,6 +277,22 @@ h1 {
   overflow: auto;
 }
 
+.graph-warnings {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.warning-chip {
+  border-radius: 14px;
+  border: 1px solid rgba(191, 139, 48, 0.28);
+  background: rgba(191, 139, 48, 0.12);
+  color: #6f4e14;
+  padding: 10px 12px;
+  font-size: 0.86rem;
+}
+
 .graph-svg {
   width: 100%;
   min-width: 520px;
@@ -306,6 +322,11 @@ h1 {
   fill: rgba(191, 139, 48, 0.18);
 }
 
+.graph-node.streaming rect {
+  stroke: rgba(191, 139, 48, 0.72);
+  stroke-width: 2;
+}
+
 .graph-node.completed rect {
   fill: rgba(211, 235, 227, 0.92);
 }
@@ -317,6 +338,11 @@ h1 {
 .graph-node text {
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   fill: var(--ink);
+}
+
+.graph-node .typing-indicator {
+  fill: var(--gold);
+  font-weight: 700;
 }
 
 .graph-edge {

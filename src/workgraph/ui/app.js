@@ -13,6 +13,7 @@ const state = {
   trace: [],
   nodeItems: [],
   streamText: "",
+  streamingNodes: new Set(),
   ws: null,
   traceRefreshTimer: null,
 };
@@ -221,10 +222,24 @@ function renderGraph() {
   container.replaceChildren();
   if (!state.graph) {
     container.textContent = "No workflow selected.";
+    $("graph-warnings").classList.add("hidden");
     return;
   }
 
   $("graph-caption").textContent = `${state.graph.workflow} · ${state.graph.version}`;
+  const warningContainer = $("graph-warnings");
+  warningContainer.replaceChildren();
+  if (state.graph.warnings?.length) {
+    warningContainer.classList.remove("hidden");
+    for (const warning of state.graph.warnings) {
+      const node = document.createElement("div");
+      node.className = "warning-chip";
+      node.textContent = warning;
+      warningContainer.append(node);
+    }
+  } else {
+    warningContainer.classList.add("hidden");
+  }
   const layout = computeGraphLayout(state.graph);
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", `0 0 ${layout.width} ${layout.height}`);
@@ -252,7 +267,11 @@ function renderGraph() {
     const progress = getNodeProgress(runtime);
     const counters = runtime?.counters;
     const { x, y } = layout.positions.get(node.instance_id);
-    group.setAttribute("class", `graph-node ${status}${state.selectedNodeId === node.instance_id ? " active" : ""}`);
+    const streaming = state.streamingNodes.has(node.instance_id);
+    group.setAttribute(
+      "class",
+      `graph-node ${status}${streaming ? " streaming" : ""}${state.selectedNodeId === node.instance_id ? " active" : ""}`,
+    );
     group.dataset.value = node.instance_id;
 
     const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -270,6 +289,16 @@ function renderGraph() {
     title.setAttribute("font-weight", "700");
     title.textContent = node.node_id;
     group.append(title);
+
+    if (streaming) {
+      const typing = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      typing.setAttribute("x", String(x + 112));
+      typing.setAttribute("y", String(y + 23));
+      typing.setAttribute("font-size", "14");
+      typing.setAttribute("class", "typing-indicator");
+      typing.textContent = "...";
+      group.append(typing);
+    }
 
     const meta = document.createElementNS("http://www.w3.org/2000/svg", "text");
     meta.setAttribute("x", String(x + 12));
@@ -557,6 +586,12 @@ function applyEvent(event) {
   ) {
     state.streamText += event.token ?? event.chunk ?? "";
   }
+  if (event.event === "node_stream") {
+    state.streamingNodes.add(event.node_id);
+  }
+  if (event.event === "node_stream_end") {
+    state.streamingNodes.delete(event.node_id);
+  }
 
   updateTimelineFromEvent(event);
   updateErrorsFromEvent(event);
@@ -589,6 +624,7 @@ async function loadRunDetail() {
   }
 
   await refreshRunDetailData();
+  state.streamingNodes.clear();
   if (!state.selectedNodeId && state.graph?.nodes?.length) {
     state.selectedNodeId = state.graph.nodes[0].instance_id;
   }
@@ -637,6 +673,7 @@ async function loadWorkflowHistory() {
     state.trace = [];
     state.nodeItems = [];
     state.streamText = "";
+    state.streamingNodes.clear();
     $("detail-summary").textContent = "No run selected.";
     renderDetailPanels();
   }

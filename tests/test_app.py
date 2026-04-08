@@ -26,6 +26,7 @@ def test_app_exposes_workflow_graph():
     ui = client.get("/ui")
     assert ui.status_code == 200
     assert "Workflow History" in ui.text
+    assert "graph-warnings" in ui.text
 
     ui_script = client.get("/ui/static/app.js")
     assert ui_script.status_code == 200
@@ -35,6 +36,7 @@ def test_app_exposes_workflow_graph():
     assert "scheduleTraceRefresh" in ui_script.text
     assert "applyEvent" in ui_script.text
     assert "computeGraphLayout" in ui_script.text
+    assert "streamingNodes" in ui_script.text
 
     response = client.get("/api/workflows")
     assert response.status_code == 200
