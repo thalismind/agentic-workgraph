@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "agentic-workgraph"
 version = "0.1.0"
 description = "Code-first agentic workflow graphs with tracing, execution, and observability hooks."
-readme = "spec.md"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.115",

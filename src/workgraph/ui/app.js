@@ -14,8 +14,7 @@ const state = {
   nodeItems: [],
   streamText: "",
   ws: null,
-  detailRefreshTimer: null,
-  detailRefreshPending: false,
+  traceRefreshTimer: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -52,10 +51,10 @@ function closeSocket() {
   }
 }
 
-function stopDetailRefresh() {
-  if (state.detailRefreshTimer) {
-    clearTimeout(state.detailRefreshTimer);
-    state.detailRefreshTimer = null;
+function stopTraceRefresh() {
+  if (state.traceRefreshTimer) {
+    clearTimeout(state.traceRefreshTimer);
+    state.traceRefreshTimer = null;
   }
 }
 
@@ -81,7 +80,7 @@ function renderWorkflows() {
       `${workflow.run_count} runs · ${workflow.version_count} versions`;
     node.addEventListener("click", async () => {
       closeSocket();
-      stopDetailRefresh();
+      stopTraceRefresh();
       state.selectedWorkflow = workflow.name;
       state.selectedVersion = null;
       state.selectedRunId = null;
@@ -143,7 +142,7 @@ function renderRuns(payload) {
     node.querySelector(".run-errors").textContent = `${run.error_count} errors`;
     node.addEventListener("click", async () => {
       closeSocket();
-      stopDetailRefresh();
+      stopTraceRefresh();
       state.selectedRunId = run.run_id;
       state.selectedNodeId = null;
       state.selectedItemIndex = 0;
@@ -361,6 +360,26 @@ function renderNodeInspector() {
   $("stream-view").textContent = state.streamText || "No stream selected.";
 }
 
+function updateRunSummary() {
+  if (!state.run) {
+    $("detail-summary").textContent = "No run selected.";
+    return;
+  }
+  const live = ["running", "pending"].includes(state.run.status)
+    ? `<span class="status-pill running">live</span>`
+    : "";
+  $("detail-summary").innerHTML = `
+    <div class="row row-space">
+      <strong>Status: ${state.run.status}</strong>
+      ${live}
+    </div>
+    <div class="summary-lines">
+      <span><span class="muted">Started:</span> ${formatStarted(state.run.started_at)}</span>
+      <span><span class="muted">Finished:</span> ${state.run.finished_at ? formatStarted(state.run.finished_at) : "pending"}</span>
+    </div>
+  `;
+}
+
 async function loadStream() {
   if (!state.selectedRunId || !state.selectedNodeId) {
     state.streamText = "";
@@ -448,22 +467,63 @@ async function refreshRunDetailData() {
   state.trace = trace;
 }
 
-async function scheduleDetailRefresh(immediate = false) {
+async function scheduleTraceRefresh(delayMs = 350) {
   if (!state.selectedRunId) return;
-  if (state.detailRefreshPending) return;
-  state.detailRefreshPending = true;
-  if (!immediate) {
-    await new Promise((resolve) => {
-      state.detailRefreshTimer = setTimeout(resolve, 450);
-    });
+  stopTraceRefresh();
+  state.traceRefreshTimer = setTimeout(async () => {
+    state.traceRefreshTimer = null;
+    state.trace = await fetchJson(`/api/runs/${state.selectedRunId}/trace`);
+    renderDetailPanels();
+  }, delayMs);
+}
+
+function ensureTimelineNode(nodeId) {
+  let entry = state.timeline.find((item) => item.node_id === nodeId);
+  if (!entry) {
+    entry = {
+      node_id: nodeId,
+      status: "pending",
+      started_at: null,
+      finished_at: null,
+      duration_ms: null,
+    };
+    state.timeline.push(entry);
   }
-  state.detailRefreshTimer = null;
-  state.detailRefreshPending = false;
-  await refreshRunDetailData();
-  renderDetailPanels();
-  if (state.selectedNodeId) {
-    await loadNodeInspector();
+  return entry;
+}
+
+function updateTimelineFromEvent(event) {
+  if (!event.node_id) return;
+  const entry = ensureTimelineNode(event.node_id);
+  if (event.event === "node_status") {
+    entry.status = event.status;
+    if (event.status === "running" && !entry.started_at) {
+      entry.started_at = event.timestamp;
+    }
+    if (["completed", "failed"].includes(event.status)) {
+      entry.finished_at = event.timestamp;
+      if (entry.started_at) {
+        entry.duration_ms = Math.max(
+          0,
+          new Date(entry.finished_at).getTime() - new Date(entry.started_at).getTime(),
+        );
+      }
+    }
   }
+}
+
+function updateErrorsFromEvent(event) {
+  if (event.event !== "node_error") return;
+  state.errors = [
+    ...state.errors,
+    {
+      node_id: event.node_id,
+      item_index: event.item_index ?? null,
+      error_type: event.error_type ?? "error",
+      message: event.message ?? "Unknown error",
+      timestamp: event.timestamp,
+    },
+  ];
 }
 
 function applyEvent(event) {
@@ -471,6 +531,9 @@ function applyEvent(event) {
 
   if (event.event === "run_status") {
     state.run.status = event.status;
+    if (["completed", "failed"].includes(event.status)) {
+      state.run.finished_at = event.timestamp;
+    }
   }
 
   if (event.node_id && state.run.nodes?.[event.node_id]) {
@@ -495,10 +558,16 @@ function applyEvent(event) {
     state.streamText += event.token ?? event.chunk ?? "";
   }
 
+  updateTimelineFromEvent(event);
+  updateErrorsFromEvent(event);
+  updateRunSummary();
   renderDetailPanels();
 
-  if (["node_status", "node_error", "run_status", "node_output"].includes(event.event)) {
-    scheduleDetailRefresh();
+  if (
+    (event.event === "node_status" && ["completed", "failed"].includes(event.status)) ||
+    (event.event === "run_status" && ["completed", "failed"].includes(event.status))
+  ) {
+    scheduleTraceRefresh();
   }
 }
 
@@ -526,13 +595,7 @@ async function loadRunDetail() {
 
   $("detail-title").textContent = state.run.run_id;
   $("detail-subtitle").textContent = `${state.run.workflow} · ${state.run.version}`;
-  $("detail-summary").innerHTML = `
-    <strong>Status:</strong> ${state.run.status}
-    <br />
-    <strong>Started:</strong> ${formatStarted(state.run.started_at)}
-    <br />
-    <strong>Finished:</strong> ${state.run.finished_at ? formatStarted(state.run.finished_at) : "pending"}
-  `;
+  updateRunSummary();
 
   renderDetailPanels();
   await loadNodeInspector();
@@ -565,7 +628,7 @@ async function loadWorkflowHistory() {
     await loadRunDetail();
   } else {
     closeSocket();
-    stopDetailRefresh();
+    stopTraceRefresh();
     state.selectedRunId = null;
     state.selectedNodeId = state.graph?.nodes?.[0]?.instance_id ?? null;
     state.run = null;
