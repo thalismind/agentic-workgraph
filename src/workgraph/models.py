@@ -28,6 +28,13 @@ class RunStatus(str, Enum):
     FAILED = "failed"
 
 
+class ItemStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class NodeCounters(BaseModel):
     total: int = 0
     pending: int = 0
@@ -75,21 +82,52 @@ class NodeCall(BaseModel):
     node_def: Any
 
 
+class NodeError(BaseModel):
+    run_id: str
+    node_id: str
+    item_index: int | None = None
+    attempt: int
+    retry_level: str
+    error_type: str
+    message: str
+    detail: dict[str, Any] = Field(default_factory=dict)
+    node_input: dict[str, Any] = Field(default_factory=dict)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    span_id: str | None = None
+
+
+class ItemRecord(BaseModel):
+    index: int
+    status: ItemStatus = ItemStatus.PENDING
+    input: Any = None
+    output: Any = None
+    errors: list[str] = Field(default_factory=list)
+    attempts: int = 0
+    progress: float = 0.0
+
+
 class RunNodeState(BaseModel):
     status: NodeStatus = NodeStatus.PENDING
     counters: NodeCounters = Field(default_factory=NodeCounters)
     output: list[Any] | None = None
     errors: list[str] = Field(default_factory=list)
+    checkpoint: list[Any] | None = None
+    items: list[ItemRecord] = Field(default_factory=list)
 
 
 class RunRecord(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     run_id: str
     workflow: str
     version: str
     status: RunStatus = RunStatus.PENDING
     graph: GraphSpec
+    workflow_args: tuple[Any, ...] = Field(default_factory=tuple)
+    workflow_kwargs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, list[Any]] = Field(default_factory=dict)
     nodes: dict[str, RunNodeState] = Field(default_factory=dict)
+    errors: list[NodeError] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: datetime | None = None
 

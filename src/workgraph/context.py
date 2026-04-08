@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from .models import NodeError
+
 
 class Scratchpad:
     def __init__(self) -> None:
@@ -40,7 +42,8 @@ class Context:
         item_index: int | None,
         llm_callable,
         scratchpad: Scratchpad | None = None,
-        errors: list[dict[str, Any]] | None = None,
+        errors: list[NodeError] | None = None,
+        validation_feedback: str | None = None,
     ) -> None:
         self.run_id = run_id
         self.node_id = node_id
@@ -48,18 +51,22 @@ class Context:
         self._llm_callable = llm_callable
         self.scratchpad = scratchpad or Scratchpad()
         self._errors = errors if errors is not None else []
+        self._validation_feedback = validation_feedback
 
     async def llm(self, *, prompt: str, **kwargs: Any) -> Any:
-        return await self._llm_callable(prompt=prompt, node_id=self.node_id, **kwargs)
+        full_prompt = prompt
+        if self._validation_feedback:
+            full_prompt = f"{prompt}\n\n{self._validation_feedback}"
+        return await self._llm_callable(prompt=full_prompt, node_id=self.node_id, **kwargs)
 
     @asynccontextmanager
     async def progress(self, desc: str | None = None):
         yield ProgressHandle(desc=desc)
 
-    async def get_errors(self, node_id: str | None = None) -> list[dict[str, Any]]:
+    async def get_errors(self, node_id: str | None = None) -> list[NodeError]:
         if node_id is None:
             return list(self._errors)
-        return [error for error in self._errors if error.get("node_id") == node_id]
+        return [error for error in self._errors if error.node_id == node_id]
 
     async def has_errors(self) -> bool:
         return bool(self._errors)
