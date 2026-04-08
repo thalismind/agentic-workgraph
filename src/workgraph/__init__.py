@@ -13,6 +13,7 @@ from .testing import (
     run_test_node,
     test_context,
 )
+from .testing_strategies import concurrency_configs, failure_scenarios, item_lists, workflow_graphs
 
 __all__ = [
     "Context",
@@ -24,7 +25,10 @@ __all__ = [
     "assert_graph_snapshot",
     "create_store",
     "create_app",
+    "concurrency_configs",
+    "failure_scenarios",
     "get_version",
+    "item_lists",
     "list_versions",
     "merge",
     "node",
@@ -36,5 +40,6 @@ __all__ = [
     "run_test_node",
     "test_context",
     "trace_workflow",
+    "workflow_graphs",
     "workflow",
 ]
