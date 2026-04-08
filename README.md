@@ -119,6 +119,29 @@ Run the example app with:
 .venv/bin/python -m uvicorn examples.app:app --host 0.0.0.0 --port 8081
 ```
 
+## Ollama
+
+`agentic-workgraph` includes first-party Ollama adapters:
+
+```python
+from workgraph import Executor, create_ollama_cloud_llm, create_ollama_llm
+
+local_llm = create_ollama_llm(model="gemma3")
+cloud_llm = create_ollama_cloud_llm(model="kimi-k2.5:cloud")
+
+executor = Executor(llm_callable=local_llm)
+```
+
+Local defaults:
+- base URL: `http://localhost:11434/api`
+- no auth required
+
+Direct Ollama Cloud defaults:
+- base URL: `https://ollama.com/api`
+- requires `OLLAMA_API_KEY`, `OLLAMA_CLOUD_API_KEY`, or an explicit `api_key=...`
+
+The adapter uses Ollama's `generate` API so it fits the current `ctx.llm(prompt=...)` contract without introducing a separate chat-message abstraction.
+
 `example-live-weather-capture` is the real-world reference workflow in the library. It fetches live weather data over HTTP and writes a real screenshot artifact to disk.
 
 ## Launching Jobs
