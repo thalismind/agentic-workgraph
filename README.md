@@ -62,6 +62,8 @@ The demo app in [`demo_app.py`](/workspace/data/coding/projects/agentic-workgrap
 - `hello-flow`: the smallest end-to-end workflow
 - `research-demo`: fan-out summaries, progress updates, stream playback, and traceable runs
 
+The example library in [`examples/README.md`](/workspace/data/coding/projects/agentic-workgraph/examples/README.md) adds a broader set of runnable workflows for common agentic patterns.
+
 ## Authoring Model
 
 Minimal example:
@@ -86,9 +88,16 @@ Node functions are scalar. The runtime handles list-shaped execution, concurrenc
 
 - [`src/workgraph`](/workspace/data/coding/projects/agentic-workgraph/src/workgraph): runtime, API, storage, tracing, testing helpers
 - [`src/workgraph/ui`](/workspace/data/coding/projects/agentic-workgraph/src/workgraph/ui): embedded static debugger UI
+- [`examples`](/workspace/data/coding/projects/agentic-workgraph/examples): runnable example workflows and example app
+- [`docs`](/workspace/data/coding/projects/agentic-workgraph/docs): agentic pattern documentation and example library notes
 - [`tests`](/workspace/data/coding/projects/agentic-workgraph/tests): smoke and API coverage
 - [`demo_app.py`](/workspace/data/coding/projects/agentic-workgraph/demo_app.py): runnable demo workflows
 - [`spec.md`](/workspace/data/coding/projects/agentic-workgraph/spec.md): design target for v1
+
+## Documentation
+
+- [`docs/example-library.md`](/workspace/data/coding/projects/agentic-workgraph/docs/example-library.md): what each example workflow demonstrates
+- [`docs/agentic-patterns.md`](/workspace/data/coding/projects/agentic-workgraph/docs/agentic-patterns.md): guidance on pipeline, fan-out, branching, loops, scratchpads, and recovery
 
 ## Redis
 
