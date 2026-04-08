@@ -14,6 +14,8 @@ const state = {
   nodeItems: [],
   streamText: "",
   ws: null,
+  detailRefreshTimer: null,
+  detailRefreshPending: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -27,19 +29,13 @@ async function fetchJson(path) {
 }
 
 function formatDuration(durationMs) {
-  if (durationMs == null) {
-    return "pending";
-  }
-  if (durationMs < 1000) {
-    return `${durationMs} ms`;
-  }
+  if (durationMs == null) return "pending";
+  if (durationMs < 1000) return `${durationMs} ms`;
   return `${(durationMs / 1000).toFixed(2)} s`;
 }
 
 function formatStarted(startedAt) {
-  if (!startedAt) {
-    return "not started";
-  }
+  if (!startedAt) return "not started";
   return new Date(startedAt).toLocaleString();
 }
 
@@ -53,6 +49,13 @@ function closeSocket() {
   if (state.ws) {
     state.ws.close();
     state.ws = null;
+  }
+}
+
+function stopDetailRefresh() {
+  if (state.detailRefreshTimer) {
+    clearTimeout(state.detailRefreshTimer);
+    state.detailRefreshTimer = null;
   }
 }
 
@@ -78,6 +81,7 @@ function renderWorkflows() {
       `${workflow.run_count} runs · ${workflow.version_count} versions`;
     node.addEventListener("click", async () => {
       closeSocket();
+      stopDetailRefresh();
       state.selectedWorkflow = workflow.name;
       state.selectedVersion = null;
       state.selectedRunId = null;
@@ -86,9 +90,7 @@ function renderWorkflows() {
       setActiveButton(workflowsList, workflow.name);
       await loadWorkflowHistory();
     });
-    if (state.selectedWorkflow === workflow.name) {
-      node.classList.add("active");
-    }
+    if (state.selectedWorkflow === workflow.name) node.classList.add("active");
     workflowsList.append(node);
   }
 }
@@ -107,6 +109,7 @@ function renderVersions(payload) {
       state.selectedVersion = state.selectedVersion === version.version ? null : version.version;
       state.selectedRunId = null;
       state.selectedNodeId = null;
+      state.selectedItemIndex = 0;
       await loadWorkflowHistory();
     });
     versionsList.append(node);
@@ -133,22 +136,21 @@ function renderRuns(payload) {
     node.querySelector(".run-id").textContent = run.run_id;
     const status = node.querySelector(".status-pill");
     status.textContent = run.status;
-    status.classList.add(run.status);
+    status.className = `status-pill ${run.status}`;
     node.querySelector(".run-version").textContent = run.version;
     node.querySelector(".run-duration").textContent = formatDuration(run.duration_ms);
     node.querySelector(".run-started").textContent = formatStarted(run.started_at);
     node.querySelector(".run-errors").textContent = `${run.error_count} errors`;
     node.addEventListener("click", async () => {
       closeSocket();
+      stopDetailRefresh();
       state.selectedRunId = run.run_id;
       state.selectedNodeId = null;
       state.selectedItemIndex = 0;
       setActiveButton(runsList, run.run_id);
       await loadRunDetail();
     });
-    if (state.selectedRunId === run.run_id) {
-      node.classList.add("active");
-    }
+    if (state.selectedRunId === run.run_id) node.classList.add("active");
     runsList.append(node);
   }
 }
@@ -167,8 +169,52 @@ function renderDetailItems(containerId, items, emptyText, mapFn) {
     node.querySelector(".detail-item-title").textContent = mapped.title;
     node.querySelector(".detail-item-meta").textContent = mapped.meta;
     node.querySelector(".detail-item-body").textContent = mapped.body;
+    if (mapped.active) node.classList.add("active");
+    if (mapped.onClick) node.addEventListener("click", mapped.onClick);
     container.append(node);
   }
+}
+
+function getNodeRuntime(instanceId) {
+  return state.run?.nodes?.[instanceId] ?? null;
+}
+
+function getNodeProgress(node) {
+  if (!node?.items?.length) return 0;
+  return node.items.reduce((sum, item) => sum + (item.progress ?? 0), 0) / node.items.length;
+}
+
+function computeGraphLayout(graph) {
+  const levelMap = new Map();
+  for (const node of graph.nodes) {
+    const level = node.depends_on.length
+      ? Math.max(...node.depends_on.map((dep) => levelMap.get(dep) ?? 0)) + 1
+      : 0;
+    levelMap.set(node.instance_id, level);
+  }
+
+  const lanes = new Map();
+  for (const node of graph.nodes) {
+    const level = levelMap.get(node.instance_id) ?? 0;
+    const lane = lanes.get(level) ?? [];
+    lane.push(node.instance_id);
+    lanes.set(level, lane);
+  }
+
+  const positions = new Map();
+  for (const [level, ids] of lanes.entries()) {
+    ids.forEach((id, index) => {
+      positions.set(id, { x: 48 + level * 220, y: 42 + index * 118 });
+    });
+  }
+
+  const maxLevel = Math.max(0, ...lanes.keys());
+  const maxLane = Math.max(1, ...Array.from(lanes.values()).map((value) => value.length));
+  return {
+    positions,
+    width: 240 + maxLevel * 220,
+    height: 120 + maxLane * 118,
+  };
 }
 
 function renderGraph() {
@@ -180,48 +226,47 @@ function renderGraph() {
   }
 
   $("graph-caption").textContent = `${state.graph.workflow} · ${state.graph.version}`;
-  const width = Math.max(560, state.graph.nodes.length * 180);
+  const layout = computeGraphLayout(state.graph);
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", `0 0 ${width} 210`);
+  svg.setAttribute("viewBox", `0 0 ${layout.width} ${layout.height}`);
   svg.setAttribute("class", "graph-svg");
 
-  const positions = new Map();
-  state.graph.nodes.forEach((node, index) => {
-    positions.set(node.instance_id, { x: 40 + index * 170, y: 74 });
-  });
-
   for (const edge of state.graph.edges) {
-    const from = positions.get(edge.from);
-    const to = positions.get(edge.to);
+    const from = layout.positions.get(edge.from);
+    const to = layout.positions.get(edge.to);
     if (!from || !to) continue;
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", String(from.x + 120));
-    line.setAttribute("y1", String(from.y + 30));
-    line.setAttribute("x2", String(to.x));
-    line.setAttribute("y2", String(to.y + 30));
-    line.setAttribute("class", "graph-edge");
-    svg.append(line);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const startX = from.x + 150;
+    const startY = from.y + 38;
+    const endX = to.x;
+    const endY = to.y + 38;
+    const controlX = (startX + endX) / 2;
+    path.setAttribute("d", `M ${startX} ${startY} C ${controlX} ${startY}, ${controlX} ${endY}, ${endX} ${endY}`);
+    path.setAttribute("class", "graph-edge");
+    svg.append(path);
   }
 
   for (const node of state.graph.nodes) {
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    const runNode = state.run?.nodes?.[node.instance_id];
-    const status = runNode?.status ?? node.status ?? "pending";
+    const runtime = getNodeRuntime(node.instance_id);
+    const status = runtime?.status ?? node.status ?? "pending";
+    const progress = getNodeProgress(runtime);
+    const counters = runtime?.counters;
+    const { x, y } = layout.positions.get(node.instance_id);
     group.setAttribute("class", `graph-node ${status}${state.selectedNodeId === node.instance_id ? " active" : ""}`);
     group.dataset.value = node.instance_id;
-    const { x, y } = positions.get(node.instance_id);
 
     const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     rect.setAttribute("x", String(x));
     rect.setAttribute("y", String(y));
-    rect.setAttribute("width", "120");
-    rect.setAttribute("height", "64");
-    rect.setAttribute("rx", "16");
+    rect.setAttribute("width", "150");
+    rect.setAttribute("height", "76");
+    rect.setAttribute("rx", "18");
     group.append(rect);
 
     const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
     title.setAttribute("x", String(x + 12));
-    title.setAttribute("y", String(y + 24));
+    title.setAttribute("y", String(y + 23));
     title.setAttribute("font-size", "13");
     title.setAttribute("font-weight", "700");
     title.textContent = node.node_id;
@@ -229,13 +274,37 @@ function renderGraph() {
 
     const meta = document.createElementNS("http://www.w3.org/2000/svg", "text");
     meta.setAttribute("x", String(x + 12));
-    meta.setAttribute("y", String(y + 44));
+    meta.setAttribute("y", String(y + 42));
     meta.setAttribute("font-size", "11");
-    const counters = runNode?.counters;
     meta.textContent = counters && counters.total > 1
       ? `✓ ${counters.completed} · ▸ ${counters.running} · ✗ ${counters.failed}`
       : status;
     group.append(meta);
+
+    const badge = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    badge.setAttribute("x", String(x + 12));
+    badge.setAttribute("y", String(y + 60));
+    badge.setAttribute("font-size", "10");
+    badge.textContent = runtime?.duration_ms != null ? formatDuration(runtime.duration_ms) : "waiting";
+    group.append(badge);
+
+    const progressBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    progressBg.setAttribute("x", String(x + 92));
+    progressBg.setAttribute("y", String(y + 55));
+    progressBg.setAttribute("width", "46");
+    progressBg.setAttribute("height", "8");
+    progressBg.setAttribute("rx", "4");
+    progressBg.setAttribute("class", "graph-progress-bg");
+    group.append(progressBg);
+
+    const progressBar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    progressBar.setAttribute("x", String(x + 92));
+    progressBar.setAttribute("y", String(y + 55));
+    progressBar.setAttribute("width", String(Math.max(3, 46 * progress)));
+    progressBar.setAttribute("height", "8");
+    progressBar.setAttribute("rx", "4");
+    progressBar.setAttribute("class", "graph-progress-bar");
+    group.append(progressBar);
 
     group.addEventListener("click", async () => {
       state.selectedNodeId = node.instance_id;
@@ -259,12 +328,15 @@ function renderNodeInspector() {
     return;
   }
 
-  const node = state.run?.nodes?.[state.selectedNodeId];
+  const node = getNodeRuntime(state.selectedNodeId);
   const status = node?.status ?? "pending";
+  const counters = node?.counters;
   summary.innerHTML = `
     <strong>${state.selectedNodeId}</strong>
     <br />
     <span class="muted">Status:</span> ${status}
+    <br />
+    <span class="muted">Items:</span> ${counters?.total ?? 0} total · ${counters?.completed ?? 0} done
     <br />
     <span class="muted">Duration:</span> ${formatDuration(node?.duration_ms ?? null)}
   `;
@@ -276,19 +348,15 @@ function renderNodeInspector() {
     (item) => ({
       title: `item ${item.index}`,
       meta: `${item.status} · ${formatDuration(item.duration_ms)}`,
-      body: `${JSON.stringify(item.output)}\nprogress: ${item.progress}`,
+      body: `${JSON.stringify(item.output)}\nprogress: ${Math.round((item.progress ?? 0) * 100)}%${item.progress_desc ? ` · ${item.progress_desc}` : ""}`,
+      active: item.index === state.selectedItemIndex,
+      onClick: async () => {
+        state.selectedItemIndex = item.index;
+        renderNodeInspector();
+        await loadStream();
+      },
     }),
   );
-
-  const itemsList = $("items-list");
-  Array.from(itemsList.children).forEach((child, index) => {
-    child.classList.toggle("active", index === state.selectedItemIndex);
-    child.addEventListener("click", async () => {
-      state.selectedItemIndex = index;
-      renderNodeInspector();
-      await loadStream();
-    });
-  });
 
   $("stream-view").textContent = state.streamText || "No stream selected.";
 }
@@ -315,13 +383,91 @@ async function loadNodeInspector() {
     return;
   }
   state.nodeItems = await fetchJson(`/api/runs/${state.selectedRunId}/nodes/${state.selectedNodeId}/items`);
+  if (!state.nodeItems.some((item) => item.index === state.selectedItemIndex)) {
+    state.selectedItemIndex = state.nodeItems[0]?.index ?? 0;
+  }
   await loadStream();
 }
 
-function applyEvent(event) {
-  if (!state.run || event.run_id !== state.selectedRunId) {
-    return;
+function renderDetailPanels() {
+  renderGraph();
+  renderNodeInspector();
+
+  renderDetailItems(
+    "timeline-list",
+    state.timeline,
+    "No node timing data available.",
+    (item) => ({
+      title: item.node_id,
+      meta: `${item.status} · ${formatDuration(item.duration_ms)}`,
+      body: `${formatStarted(item.started_at)} → ${item.finished_at ? formatStarted(item.finished_at) : "pending"}`,
+      active: item.node_id === state.selectedNodeId,
+      onClick: async () => {
+        state.selectedNodeId = item.node_id;
+        state.selectedItemIndex = 0;
+        renderDetailPanels();
+        await loadNodeInspector();
+      },
+    }),
+  );
+
+  renderDetailItems(
+    "errors-list",
+    state.errors,
+    "No errors recorded.",
+    (item) => ({
+      title: `${item.node_id}${item.item_index == null ? "" : ` [${item.item_index}]`}`,
+      meta: item.error_type,
+      body: item.message,
+    }),
+  );
+
+  renderDetailItems(
+    "trace-list",
+    state.trace,
+    "No trace spans recorded.",
+    (item) => ({
+      title: item.name,
+      meta: item.status,
+      body: JSON.stringify(item.attributes, null, 2),
+    }),
+  );
+}
+
+async function refreshRunDetailData() {
+  if (!state.selectedRunId) return;
+  const [run, timeline, errors, trace] = await Promise.all([
+    fetchJson(`/api/runs/${state.selectedRunId}`),
+    fetchJson(`/api/runs/${state.selectedRunId}/timeline`),
+    fetchJson(`/api/runs/${state.selectedRunId}/errors`),
+    fetchJson(`/api/runs/${state.selectedRunId}/trace`),
+  ]);
+  state.run = run;
+  state.timeline = timeline;
+  state.errors = errors;
+  state.trace = trace;
+}
+
+async function scheduleDetailRefresh(immediate = false) {
+  if (!state.selectedRunId) return;
+  if (state.detailRefreshPending) return;
+  state.detailRefreshPending = true;
+  if (!immediate) {
+    await new Promise((resolve) => {
+      state.detailRefreshTimer = setTimeout(resolve, 450);
+    });
   }
+  state.detailRefreshTimer = null;
+  state.detailRefreshPending = false;
+  await refreshRunDetailData();
+  renderDetailPanels();
+  if (state.selectedNodeId) {
+    await loadNodeInspector();
+  }
+}
+
+function applyEvent(event) {
+  if (!state.run || event.run_id !== state.selectedRunId) return;
 
   if (event.event === "run_status") {
     state.run.status = event.status;
@@ -329,12 +475,8 @@ function applyEvent(event) {
 
   if (event.node_id && state.run.nodes?.[event.node_id]) {
     const node = state.run.nodes[event.node_id];
-    if (event.event === "node_status") {
-      node.status = event.status;
-    }
-    if (event.event === "node_counters") {
-      node.counters = event.counters;
-    }
+    if (event.event === "node_status") node.status = event.status;
+    if (event.event === "node_counters") node.counters = event.counters;
   }
 
   if (event.event === "node_progress" && event.node_id === state.selectedNodeId && event.item_index != null) {
@@ -353,21 +495,19 @@ function applyEvent(event) {
     state.streamText += event.token ?? event.chunk ?? "";
   }
 
-  renderGraph();
-  renderNodeInspector();
+  renderDetailPanels();
+
+  if (["node_status", "node_error", "run_status", "node_output"].includes(event.event)) {
+    scheduleDetailRefresh();
+  }
 }
 
 function connectRunSocket() {
   closeSocket();
-  if (!state.selectedRunId || !["running", "pending"].includes(state.run?.status ?? "")) {
-    return;
-  }
+  if (!state.selectedRunId || !["running", "pending"].includes(state.run?.status ?? "")) return;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   state.ws = new WebSocket(`${protocol}//${window.location.host}/api/runs/${state.selectedRunId}/ws`);
-  state.ws.onmessage = (message) => {
-    const event = JSON.parse(message.data);
-    applyEvent(event);
-  };
+  state.ws.onmessage = (message) => applyEvent(JSON.parse(message.data));
   state.ws.onclose = () => {
     state.ws = null;
   };
@@ -379,75 +519,28 @@ async function loadRunDetail() {
     return;
   }
 
-  const [run, timeline, errors, trace] = await Promise.all([
-    fetchJson(`/api/runs/${state.selectedRunId}`),
-    fetchJson(`/api/runs/${state.selectedRunId}/timeline`),
-    fetchJson(`/api/runs/${state.selectedRunId}/errors`),
-    fetchJson(`/api/runs/${state.selectedRunId}/trace`),
-  ]);
-
-  state.run = run;
-  state.timeline = timeline;
-  state.errors = errors;
-  state.trace = trace;
+  await refreshRunDetailData();
   if (!state.selectedNodeId && state.graph?.nodes?.length) {
     state.selectedNodeId = state.graph.nodes[0].instance_id;
   }
 
-  $("detail-title").textContent = run.run_id;
-  $("detail-subtitle").textContent = `${run.workflow} · ${run.version}`;
+  $("detail-title").textContent = state.run.run_id;
+  $("detail-subtitle").textContent = `${state.run.workflow} · ${state.run.version}`;
   $("detail-summary").innerHTML = `
-    <strong>Status:</strong> ${run.status}
+    <strong>Status:</strong> ${state.run.status}
     <br />
-    <strong>Started:</strong> ${formatStarted(run.started_at)}
+    <strong>Started:</strong> ${formatStarted(state.run.started_at)}
     <br />
-    <strong>Finished:</strong> ${run.finished_at ? formatStarted(run.finished_at) : "pending"}
+    <strong>Finished:</strong> ${state.run.finished_at ? formatStarted(state.run.finished_at) : "pending"}
   `;
 
-  renderGraph();
-  renderNodeInspector();
-
-  renderDetailItems(
-    "timeline-list",
-    timeline,
-    "No node timing data available.",
-    (item) => ({
-      title: item.node_id,
-      meta: `${item.status} · ${formatDuration(item.duration_ms)}`,
-      body: `${formatStarted(item.started_at)} → ${item.finished_at ? formatStarted(item.finished_at) : "pending"}`,
-    }),
-  );
-
-  renderDetailItems(
-    "errors-list",
-    errors,
-    "No errors recorded.",
-    (item) => ({
-      title: `${item.node_id}${item.item_index == null ? "" : ` [${item.item_index}]`}`,
-      meta: item.error_type,
-      body: item.message,
-    }),
-  );
-
-  renderDetailItems(
-    "trace-list",
-    trace,
-    "No trace spans recorded.",
-    (item) => ({
-      title: item.name,
-      meta: item.status,
-      body: JSON.stringify(item.attributes, null, 2),
-    }),
-  );
-
+  renderDetailPanels();
   await loadNodeInspector();
   connectRunSocket();
 }
 
 async function loadWorkflowHistory() {
-  if (!state.selectedWorkflow) {
-    return;
-  }
+  if (!state.selectedWorkflow) return;
 
   const [versionsPayload, runsPayload, graphPayload] = await Promise.all([
     fetchJson(`/api/workflows/${state.selectedWorkflow}/versions`),
@@ -472,17 +565,17 @@ async function loadWorkflowHistory() {
     await loadRunDetail();
   } else {
     closeSocket();
+    stopDetailRefresh();
     state.selectedRunId = null;
     state.selectedNodeId = state.graph?.nodes?.[0]?.instance_id ?? null;
     state.run = null;
+    state.timeline = [];
+    state.errors = [];
+    state.trace = [];
     state.nodeItems = [];
     state.streamText = "";
     $("detail-summary").textContent = "No run selected.";
-    $("timeline-list").replaceChildren();
-    $("errors-list").replaceChildren();
-    $("trace-list").replaceChildren();
-    renderNodeInspector();
-    renderGraph();
+    renderDetailPanels();
   }
 }
 
@@ -495,12 +588,7 @@ async function refresh() {
   await loadWorkflowHistory();
 }
 
-$("refresh-button").addEventListener("click", () => {
-  refresh().catch((error) => {
-    console.error(error);
-  });
-});
-
+$("refresh-button").addEventListener("click", () => refresh().catch(console.error));
 $("items-tab").addEventListener("click", () => setTab("items"));
 $("stream-tab").addEventListener("click", () => setTab("stream"));
 setTab("items");

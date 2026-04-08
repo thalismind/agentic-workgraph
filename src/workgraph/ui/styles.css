@@ -322,6 +322,15 @@ h1 {
 .graph-edge {
   stroke: rgba(30, 47, 46, 0.28);
   stroke-width: 2;
+  fill: none;
+}
+
+.graph-progress-bg {
+  fill: rgba(30, 47, 46, 0.08);
+}
+
+.graph-progress-bar {
+  fill: var(--accent);
 }
 
 .detail-item {
@@ -329,6 +338,11 @@ h1 {
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.64);
   padding: 12px 14px;
+}
+
+.detail-item.active {
+  border-color: rgba(10, 74, 60, 0.48);
+  background: rgba(211, 235, 227, 0.56);
 }
 
 .detail-item-body {

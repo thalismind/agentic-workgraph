@@ -32,6 +32,8 @@ def test_app_exposes_workflow_graph():
     assert "renderGraph" in ui_script.text
     assert "WebSocket" in ui_script.text
     assert "loadNodeInspector" in ui_script.text
+    assert "scheduleDetailRefresh" in ui_script.text
+    assert "computeGraphLayout" in ui_script.text
 
     response = client.get("/api/workflows")
     assert response.status_code == 200
