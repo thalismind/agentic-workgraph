@@ -38,6 +38,7 @@ def test_app_exposes_workflow_graph():
 
     ui = client.get("/ui")
     assert ui.status_code == 200
+    assert "Agentic Workgraph" in ui.text
     assert "Workflow History" in ui.text
     assert "graph-warnings" in ui.text
     assert "run-workflow-button" in ui.text
