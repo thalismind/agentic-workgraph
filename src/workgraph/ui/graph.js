@@ -49,7 +49,7 @@ function statusTheme(status, streaming) {
   if (status === "failed") {
     return {
       color: "#7d2f39",
-      bgcolor: "#f9eaed",
+      bgcolor: "#e8d9dd",
       boxcolor: "#9d4951",
       text: "#3d1111",
       muted: "#7a3131",
@@ -59,7 +59,7 @@ function statusTheme(status, streaming) {
   if (status === "completed") {
     return {
       color: "#083f34",
-      bgcolor: "#e2f1ec",
+      bgcolor: "#d3e4dd",
       boxcolor: "#0a4a3c",
       text: "#112520",
       muted: "#42635a",
@@ -69,7 +69,7 @@ function statusTheme(status, streaming) {
   if (status === "running" || streaming) {
     return {
       color: "#9b6c11",
-      bgcolor: "#fff5da",
+      bgcolor: "#f1e2b6",
       boxcolor: "#d4a537",
       text: "#402d11",
       muted: "#7d6337",
@@ -78,7 +78,7 @@ function statusTheme(status, streaming) {
   }
   return {
     color: "#31213f",
-    bgcolor: "#efebf5",
+    bgcolor: "#dfd8e9",
     boxcolor: "#6a5a7d",
     text: "#1d2130",
     muted: "#645d72",
@@ -179,15 +179,15 @@ function ensureLiteGraphRegistration() {
     }
 
     const barX = 118;
-    const barY = 70;
+    const barY = 52;
     const barWidth = width - barX - 16;
     ctx.fillStyle = "rgba(64, 78, 97, 0.12)";
     ctx.beginPath();
-    ctx.roundRect(barX, barY, barWidth, 9, 4.5);
+    ctx.roundRect(barX, barY, barWidth, 8, 4);
     ctx.fill();
     ctx.fillStyle = theme.boxcolor;
     ctx.beginPath();
-    ctx.roundRect(barX, barY, Math.max(6, barWidth * progress), 9, 4.5);
+    ctx.roundRect(barX, barY, Math.max(6, barWidth * progress), 8, 4);
     ctx.fill();
 
     if (properties.streaming) {
