@@ -122,3 +122,46 @@ def test_workflows_command_supports_json_output(monkeypatch, capsys):
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out) == workflows
+
+
+def test_launch_spec_command_formats_expected_inputs(monkeypatch, capsys):
+    payload = {
+        "workflow": "demo",
+        "params": [
+            {
+                "name": "prompt_text",
+                "kind": "POSITIONAL_OR_KEYWORD",
+                "required": True,
+                "default": None,
+                "annotation": "<class 'str'>",
+            },
+            {
+                "name": "dry_run",
+                "kind": "POSITIONAL_OR_KEYWORD",
+                "required": False,
+                "default": False,
+                "annotation": "<class 'bool'>",
+            },
+        ],
+    }
+
+    monkeypatch.setattr(cli, "_request_json", lambda *args, **kwargs: payload)
+
+    exit_code = cli.main(["launch-spec", "demo"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "workflow=demo" in output
+    assert "prompt_text (required, POSITIONAL_OR_KEYWORD) -> <class 'str'>" in output
+    assert "dry_run (optional, POSITIONAL_OR_KEYWORD) -> <class 'bool'> default=false" in output
+
+
+def test_launch_spec_command_supports_json_output(monkeypatch, capsys):
+    payload = {"workflow": "demo", "params": [{"name": "prompt_text", "required": True}]}
+
+    monkeypatch.setattr(cli, "_request_json", lambda *args, **kwargs: payload)
+
+    exit_code = cli.main(["--json", "launch-spec", "demo"])
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == payload

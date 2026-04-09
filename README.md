@@ -77,6 +77,12 @@ List workflows:
 workgraph workflows
 ```
 
+Inspect a workflow's expected input arguments and defaults:
+
+```bash
+workgraph launch-spec thalis-concept-intake-to-packet
+```
+
 Launch a workflow with named args:
 
 ```bash

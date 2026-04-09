@@ -145,6 +145,27 @@ def _format_artifact(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _format_launch_spec(payload: dict[str, Any]) -> str:
+    lines = [f"workflow={payload['workflow']}"]
+    params = payload.get("params", [])
+    if not params:
+        lines.append("params: none")
+        return "\n".join(lines)
+    lines.append("params:")
+    for parameter in params:
+        required = "required" if parameter.get("required") else "optional"
+        kind = parameter.get("kind") or "UNKNOWN"
+        line = f"  {parameter['name']} ({required}, {kind})"
+        annotation = parameter.get("annotation")
+        if annotation:
+            line += f" -> {annotation}"
+        default = parameter.get("default")
+        if not parameter.get("required"):
+            line += f" default={json.dumps(default, sort_keys=True)}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _print_run_artifact(base_url: str, run_id: str, *, as_json: bool) -> None:
     artifact = _request_json(base_url, "GET", f"/api/runs/{run_id}/artifact")
     _dump(artifact, as_json=as_json) if as_json else print(_format_artifact(artifact))
@@ -187,6 +208,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     artifact_parser = subparsers.add_parser("artifact", help="Fetch the final artifact for a run.")
     artifact_parser.add_argument("run_id", help="Run ID to inspect.")
+
+    launch_spec_parser = subparsers.add_parser("launch-spec", help="Show the expected workflow input arguments.")
+    launch_spec_parser.add_argument("workflow", help="Workflow name to inspect.")
 
     return parser
 
@@ -248,6 +272,11 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "artifact":
             _print_run_artifact(args.base_url, args.run_id, as_json=args.json)
+            return 0
+
+        if args.command == "launch-spec":
+            payload = _request_json(args.base_url, "GET", f"/api/workflows/{args.workflow}/launch-spec")
+            _dump(payload, as_json=args.json) if args.json else print(_format_launch_spec(payload))
             return 0
 
         raise CliError(f"Unknown command '{args.command}'")
