@@ -133,7 +133,7 @@ function ensureLiteGraphRegistration() {
   LiteGraph.CONNECTING_LINK_COLOR = "#00e5b0";
 
   function WorkgraphRuntimeNode() {
-    this.size = [220, 118];
+    this.size = [220, 108];
     this.properties = {
       instanceId: "",
       nodeId: "",
@@ -372,7 +372,7 @@ export function renderGraph({ onSelectNode }) {
     if (nodeData.loop_iterations && nodeData.loop_iterations > 1) {
       graphNode.addInput("loop", "");
     }
-    graphNode.setSize([220, Math.max(graphNode.size[1], 118)]);
+    graphNode.setSize([220, Math.max(graphNode.size[1], 108)]);
     liteGraphGraph.add(graphNode);
     nodeMap.set(nodeData.instance_id, graphNode);
   }
