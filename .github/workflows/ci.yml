@@ -8,19 +8,24 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    container:
+      image: python:${{ matrix.python-version }}-bookworm
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11"]
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y git curl
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Verify workspace
+        run: |
+          test -f pyproject.toml
+          python --version
+          git status --short
 
       - name: Install dependencies
         run: |
