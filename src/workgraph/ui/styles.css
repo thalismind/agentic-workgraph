@@ -461,6 +461,20 @@ h2 {
   word-break: break-word;
 }
 
+.detail-item-body-code {
+  display: block;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(245, 248, 252, 0.9);
+  color: var(--ink);
+  font-family: "SFMono-Regular", "Consolas", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  overflow-x: auto;
+}
+
 .detail-item.collapsed .detail-item-body {
   display: none;
 }

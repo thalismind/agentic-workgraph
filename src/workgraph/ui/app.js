@@ -200,7 +200,9 @@ function renderDetailItems(containerId, items, emptyText, mapFn) {
     const itemKey = mapped.key ?? `${containerId}:${mapped.title}:${mapped.meta}`;
     node.querySelector(".detail-item-title").textContent = mapped.title;
     node.querySelector(".detail-item-meta").textContent = mapped.meta;
-    node.querySelector(".detail-item-body").textContent = mapped.body;
+    const body = node.querySelector(".detail-item-body");
+    body.textContent = mapped.body;
+    body.classList.toggle("detail-item-body-code", Boolean(mapped.bodyCode));
     const head = node.querySelector(".detail-item-head");
     const expanded = state.expandedDetailItems.has(itemKey);
     node.classList.toggle("collapsed", !expanded);
@@ -267,7 +269,8 @@ function renderNodeInspector() {
       key: `node-item:${state.selectedNodeId}:${item.index}`,
       title: `item ${item.index}`,
       meta: `${item.status} · ${formatDuration(item.duration_ms)}`,
-      body: `${JSON.stringify(item.output)}\nprogress: ${Math.round((item.progress ?? 0) * 100)}%${item.progress_desc ? ` · ${item.progress_desc}` : ""}`,
+      body: `${JSON.stringify(item.output, null, 2)}\nprogress: ${Math.round((item.progress ?? 0) * 100)}%${item.progress_desc ? ` · ${item.progress_desc}` : ""}`,
+      bodyCode: true,
       active: item.index === state.selectedItemIndex,
       onClick: async () => {
         state.selectedItemIndex = item.index;
