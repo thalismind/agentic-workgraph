@@ -128,6 +128,33 @@ def test_redis_store_round_trip(monkeypatch):
     assert fake.expirations["run:redis-run:node:redis_llm_0:item:0:stream"] == 24 * 3600
 
 
+def test_redis_store_list_runs_ignores_event_and_span_keys(monkeypatch):
+    fake = FakeRedis()
+
+    class FakeRedisFactory:
+        @staticmethod
+        def from_url(url: str, decode_responses: bool = True):
+            return fake
+
+    import redis
+
+    monkeypatch.setattr(redis, "Redis", FakeRedisFactory)
+
+    store = RedisStore("redis://example/0")
+    executor = Executor(store=store, llm_callable=MockLLM())
+    executor.llm_callable.on("redis_llm").stream(["x"], "done")
+
+    run = asyncio.run(executor.run(redis_flow, run_id="redis-run"))
+    assert run.status == "completed"
+
+    fake.set("run:redis-run:events", "[]")
+    fake.set("run:redis-run:spans", "[]")
+
+    runs = store.list_runs()
+
+    assert [item.run_id for item in runs] == ["redis-run"]
+
+
 def test_redis_store_pubsub_subscription(monkeypatch):
     fake = FakeRedis()
 

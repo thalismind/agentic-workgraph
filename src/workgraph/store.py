@@ -163,7 +163,7 @@ class RedisStore(InMemoryStore):
 
     def list_runs(self, workflow: str | None = None, version: str | None = None) -> list[RunRecord]:
         if workflow is None:
-            run_ids = sorted(self.redis.keys("run:*"))
+            run_ids = sorted(key for key in self.redis.keys("run:*") if key.count(":") == 1)
             runs = []
             for key in run_ids:
                 try:
