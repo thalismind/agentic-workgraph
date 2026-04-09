@@ -200,6 +200,7 @@ class RedisStore(InMemoryStore):
         return sorted(versions)
 
     def publish_event(self, run_id: str, event: dict) -> None:
+        event = _json_safe(event)
         super().publish_event(run_id, event)
         payload = json.dumps(event)
         self.redis.rpush(f"run:{run_id}:events", payload)
@@ -266,6 +267,7 @@ class RedisStore(InMemoryStore):
         return super().get_stream(run_id, node_id, item_index)
 
     def add_span(self, run_id: str, span: dict[str, Any]) -> None:
+        span = _json_safe(span)
         super().add_span(run_id, span)
         self.redis.rpush(f"run:{run_id}:spans", json.dumps(span))
 

@@ -19,6 +19,7 @@ export const state = {
   lastWsMessageAt: null,
   wsStatusTimer: null,
   traceRefreshTimer: null,
+  workflowsRefreshTimer: null,
   launchingRun: false,
   applyingHashRoute: false,
   collapsedSections: {
@@ -80,6 +81,13 @@ export function stopTraceRefresh() {
   if (state.traceRefreshTimer) {
     clearTimeout(state.traceRefreshTimer);
     state.traceRefreshTimer = null;
+  }
+}
+
+export function stopWorkflowsRefresh() {
+  if (state.workflowsRefreshTimer) {
+    clearTimeout(state.workflowsRefreshTimer);
+    state.workflowsRefreshTimer = null;
   }
 }
 

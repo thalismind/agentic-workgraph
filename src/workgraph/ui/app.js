@@ -12,6 +12,7 @@ import {
   setTab,
   state,
   stopTraceRefresh,
+  stopWorkflowsRefresh,
 } from "./state.js";
 
 function formatRelativeTime(timestamp) {
@@ -768,6 +769,61 @@ async function refresh() {
   await applyHashRoute();
 }
 
+function workflowSummarySignature(workflow) {
+  return JSON.stringify({
+    name: workflow.name,
+    current_version: workflow.current_version,
+    version_count: workflow.version_count,
+    run_count: workflow.run_count,
+    latest_run_id: workflow.latest_run?.run_id ?? null,
+    latest_run_status: workflow.latest_run?.status ?? null,
+    latest_run_version: workflow.latest_run?.version ?? null,
+  });
+}
+
+function workflowsChanged(nextWorkflows) {
+  if (nextWorkflows.length !== state.workflows.length) return true;
+  for (let index = 0; index < nextWorkflows.length; index += 1) {
+    if (workflowSummarySignature(nextWorkflows[index]) !== workflowSummarySignature(state.workflows[index])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function refreshWorkflowsInBackground() {
+  const nextWorkflows = await fetchJson("/api/workflows");
+  const changed = workflowsChanged(nextWorkflows);
+  if (!changed) return;
+
+  const selectedWorkflowChanged =
+    !!state.selectedWorkflow &&
+    workflowSummarySignature(nextWorkflows.find((workflow) => workflow.name === state.selectedWorkflow) ?? {}) !==
+      workflowSummarySignature(state.workflows.find((workflow) => workflow.name === state.selectedWorkflow) ?? {});
+
+  state.workflows = nextWorkflows;
+  renderWorkflows();
+  renderRunButton();
+
+  if (selectedWorkflowChanged && !state.applyingHashRoute) {
+    await loadWorkflowHistory();
+  }
+}
+
+function scheduleWorkflowsRefresh(delayMs = 5000) {
+  stopWorkflowsRefresh();
+  state.workflowsRefreshTimer = setTimeout(async () => {
+    state.workflowsRefreshTimer = null;
+    try {
+      await refreshWorkflowsInBackground();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      scheduleWorkflowsRefresh(delayMs);
+    }
+  }, delayMs);
+}
+
 async function launchWorkflowRun() {
   if (!state.selectedWorkflow || state.launchingRun) return;
   state.launchingRun = true;
@@ -803,6 +859,7 @@ renderLayoutControls();
 renderWsStatus();
 renderCollapsedSections();
 startWsStatusClock();
+scheduleWorkflowsRefresh();
 
 refresh().catch((error) => {
   $("detail-summary").textContent = error.message;
