@@ -67,6 +67,39 @@ The example library in [`examples/README.md`](examples/README.md) adds a broader
 
 The embedded UI also supports launching a fresh run directly from the selected workflow with the `Run Workflow` button.
 
+## CLI
+
+`agentic-workgraph` also exposes a `workgraph` CLI that talks to an already-running API server. It does not launch the server itself.
+
+List workflows:
+
+```bash
+workgraph workflows
+```
+
+Launch a workflow with named args:
+
+```bash
+workgraph run thalis-concept-intake-to-packet --prompt-text="A cathedral grown from black coral and sea-glass"
+```
+
+Watch a run until completion:
+
+```bash
+workgraph run thalis-concept-intake-to-packet --wait --prompt-text="A cathedral grown from black coral and sea-glass"
+workgraph status <run-id> --watch
+```
+
+Print the final artifact after waiting, or fetch it later from a past run:
+
+```bash
+workgraph run thalis-concept-intake-to-packet --wait --artifact --prompt-text="A cathedral grown from black coral and sea-glass"
+workgraph status <run-id> --watch --artifact
+workgraph artifact <run-id>
+```
+
+By default the CLI targets `http://127.0.0.1:8081`. Override that with `--base-url` or `WORKGRAPH_BASE_URL`.
+
 ## Authoring Model
 
 Minimal example:

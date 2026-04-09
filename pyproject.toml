@@ -29,6 +29,9 @@ dev = [
   "pytest-asyncio>=0.23",
 ]
 
+[project.scripts]
+workgraph = "workgraph.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/workgraph"]
 

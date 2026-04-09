@@ -1054,10 +1054,34 @@ class Executor:
                 state.finished_at = _now()
                 state.duration_ms = _duration_ms(state.started_at, state.finished_at)
                 state.errors.append(str(exc))
+                if not any(error.node_id == call.node_def.node_id and error.message == str(exc) for error in error_log):
+                    error_log.append(
+                        NodeError(
+                            run_id=run_id,
+                            node_id=call.node_def.node_id,
+                            item_index=None,
+                            attempt=1,
+                            retry_level="node",
+                            error_type=exc.__class__.__name__.lower(),
+                            message=str(exc),
+                            detail={},
+                            node_input=locals().get("materialized", {}),
+                        )
+                    )
                 record.outputs = outputs
                 record.errors = error_log
                 run_span.set_attribute("workgraph.run.status", "error")
                 run_span.set_status(Status(StatusCode.ERROR, str(exc)))
+                emit_event(
+                    _event(
+                        "node_error",
+                        run_id,
+                        node_id=call.display_id,
+                        item_index=None,
+                        error_type=exc.__class__.__name__.lower(),
+                        message=str(exc),
+                    )
+                )
                 emit_event(_event("node_status", run_id, node_id=call.display_id, status=state.status.value, attempt=1))
                 emit_event(_event("run_status", run_id, status=record.status.value, workflow=workflow_def.name))
             finally:

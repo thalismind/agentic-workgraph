@@ -396,3 +396,35 @@ def test_resume_endpoint_reuses_checkpointed_nodes():
     run = client.get("/api/runs/resume-api-run")
     assert run.status_code == 200
     assert run.json()["outputs"]["resume_render_api_0"] == ["GO", "GO!"]
+
+
+def test_run_errors_include_node_level_binding_failures():
+    @node(id="upstream")
+    async def upstream(ctx, value: str):
+        return value
+
+    @node(id="downstream")
+    async def downstream(ctx, request: str):
+        return request
+
+    @workflow(name="binding-failure-flow")
+    def binding_failure_flow():
+        value = upstream(value=["demo"])
+        return downstream(value)
+
+    app = create_app(workflows=[binding_failure_flow])
+    client = TestClient(app)
+
+    response = client.post("/api/workflows/binding-failure-flow/runs?run_id=binding-failure-run")
+    assert response.status_code == 200
+    wait_for_run_status(client, "binding-failure-run", "failed")
+
+    run = client.get("/api/runs/binding-failure-run")
+    assert run.status_code == 200
+    assert run.json()["nodes"]["downstream_0"]["errors"] == ["'request'"]
+
+    errors = client.get("/api/runs/binding-failure-run/errors")
+    assert errors.status_code == 200
+    assert len(errors.json()) == 1
+    assert errors.json()[0]["node_id"] == "downstream"
+    assert errors.json()[0]["message"] == "'request'"
