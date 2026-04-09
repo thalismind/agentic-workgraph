@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .core import Executor, list_versions, trace_workflow
 from .models import (
     GraphSpec,
+    RunLaunchRequest,
     RunLaunchResponse,
     RunRecord,
     RunSummary,
@@ -128,11 +129,12 @@ def create_app(
         )
 
     @app.post("/api/workflows/{name}/runs", response_model=RunLaunchResponse)
-    async def start_run(name: str, run_id: str | None = None):
+    async def start_run(name: str, request: RunLaunchRequest | None = Body(default=None), run_id: str | None = None):
         workflow = workflow_map.get(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
-        run = await executor.launch(workflow, run_id=run_id)
+        request = request or RunLaunchRequest()
+        run = await executor.launch(workflow, *request.args, run_id=run_id, **request.kwargs)
         return RunLaunchResponse(run_id=run.run_id, status=run.status, workflow=run.workflow, version=run.version)
 
     @app.get("/api/runs", response_model=list[RunSummary])

@@ -126,6 +126,11 @@ class RunLaunchResponse(BaseModel):
     version: str
 
 
+class RunLaunchRequest(BaseModel):
+    args: list[Any] = Field(default_factory=list)
+    kwargs: dict[str, Any] = Field(default_factory=dict)
+
+
 class TimelineEntry(BaseModel):
     node_id: str
     status: NodeStatus

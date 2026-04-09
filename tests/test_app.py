@@ -165,6 +165,16 @@ def stream_flow():
     return stream_hello(name=["world"])
 
 
+@node(id="select_greeting")
+async def select_greeting(name: str, ctx):
+    return f"hello {name}"
+
+
+@workflow(name="parameter-flow")
+def parameter_flow(name: list[str] | None = None):
+    return select_greeting(name=name or ["default"])
+
+
 def test_run_emits_event_history():
     store = InMemoryStore()
     app = create_app(workflows=[slow_flow], store=store)
@@ -232,6 +242,36 @@ def test_stream_events_and_recording():
     assert row["duration_ms"] is not None
     assert row["started_at"] is not None
     assert row["finished_at"] is not None
+
+
+def test_run_launch_accepts_workflow_kwargs():
+    app = create_app(workflows=[parameter_flow])
+    client = TestClient(app)
+
+    response = client.post("/api/workflows/parameter-flow/runs", json={"kwargs": {"name": ["custom"]}})
+    assert response.status_code == 200
+
+    run_id = response.json()["run_id"]
+    payload = wait_for_run_status(client, run_id, "completed")
+    assert payload["workflow_kwargs"] == {"name": ["custom"]}
+
+    item = client.get(f"/api/runs/{run_id}/nodes/select_greeting_0/items/0")
+    assert item.status_code == 200
+    assert item.json()["input"] == "custom"
+    assert item.json()["output"] == "hello custom"
+
+    positional = client.post("/api/workflows/parameter-flow/runs", json={"args": [["positional"]]})
+    assert positional.status_code == 200
+
+    positional_run_id = positional.json()["run_id"]
+    positional_payload = wait_for_run_status(client, positional_run_id, "completed")
+    assert positional_payload["workflow_args"] == [["positional"]]
+    assert positional_payload["workflow_kwargs"] == {}
+
+    positional_item = client.get(f"/api/runs/{positional_run_id}/nodes/select_greeting_0/items/0")
+    assert positional_item.status_code == 200
+    assert positional_item.json()["input"] == "positional"
+    assert positional_item.json()["output"] == "hello positional"
 
 
 def test_run_history_filters_by_workflow_and_version():
