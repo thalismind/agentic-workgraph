@@ -14,7 +14,13 @@ from .testing import (
     run_test_node,
     test_context,
 )
-from .testing_strategies import concurrency_configs, failure_scenarios, item_lists, workflow_graphs
+try:
+    from .testing_strategies import concurrency_configs, failure_scenarios, item_lists, workflow_graphs
+except ModuleNotFoundError:  # pragma: no cover - optional test dependency
+    concurrency_configs = None
+    failure_scenarios = None
+    item_lists = None
+    workflow_graphs = None
 
 __all__ = [
     "Context",
