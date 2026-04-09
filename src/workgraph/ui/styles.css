@@ -376,14 +376,30 @@ h1 {
 }
 
 .graph-canvas {
-  min-height: 210px;
+  position: relative;
+  min-height: 280px;
   border-radius: 18px;
   border: 1px solid var(--line);
   background:
     linear-gradient(180deg, rgba(243, 247, 252, 0.94), rgba(233, 239, 247, 0.94)),
     radial-gradient(circle at top, rgba(30, 136, 229, 0.12), transparent 50%);
-  padding: 14px;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.graph-canvas-surface {
+  display: block;
+  width: 100%;
+  min-height: 280px;
+  height: 280px;
+}
+
+.graph-canvas-empty {
+  position: absolute;
+  inset: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .graph-warnings {
@@ -402,89 +418,8 @@ h1 {
   font-size: 0.86rem;
 }
 
-.graph-svg {
-  width: 100%;
-  min-width: 520px;
-  height: 210px;
-}
-
-.graph-loop-edge {
-  fill: none;
-  stroke: rgba(191, 139, 48, 0.85);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-dasharray: 5 4;
-}
-
-.graph-loop-label {
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
-  font-size: 11px;
-  font-weight: 700;
-  fill: #9b6b19;
-}
-
-.graph-truncate-indicator {
-  fill: rgba(30, 136, 229, 0.8);
-}
-
-.graph-node {
-  cursor: pointer;
-}
-
-.graph-node rect {
-  fill: rgba(247, 250, 252, 0.98);
-  stroke: rgba(64, 78, 97, 0.18);
-  stroke-width: 1.25;
-}
-
-.graph-node.active rect {
-  stroke: rgba(30, 136, 229, 0.72);
-  stroke-width: 2;
-}
-
-.graph-node.pending rect {
-  fill: rgba(233, 238, 244, 0.98);
-}
-
-.graph-node.running rect {
-  fill: rgba(191, 139, 48, 0.18);
-}
-
-.graph-node.streaming rect {
-  stroke: rgba(242, 169, 59, 0.72);
-  stroke-width: 2;
-}
-
-.graph-node.completed rect {
-  fill: rgba(227, 242, 253, 0.98);
-}
-
-.graph-node.failed rect {
-  fill: rgba(252, 234, 234, 0.98);
-}
-
-.graph-node text {
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
-  fill: var(--ink);
-}
-
-.graph-node .typing-indicator {
-  fill: var(--gold);
-  font-weight: 700;
-}
-
-.graph-edge {
-  stroke: rgba(64, 78, 97, 0.32);
-  stroke-width: 2;
-  fill: none;
-}
-
-.graph-progress-bg {
-  fill: rgba(64, 78, 97, 0.12);
-}
-
-.graph-progress-bar {
-  fill: var(--accent);
+.graph-canvas .litegraph {
+  background-image: none;
 }
 
 .detail-item {

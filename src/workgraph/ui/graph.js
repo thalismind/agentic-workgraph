@@ -1,12 +1,85 @@
 import { $, formatDuration, formatNodeLabel, state } from "./state.js";
 
+const WORKGRAPH_NODE_TYPE = "workgraph/runtime";
+
+let liteGraphRegistered = false;
+let liteGraphGraph = null;
+let liteGraphCanvas = null;
+let resizeObserver = null;
+const nodePositionsByGraph = new Map();
+
+function liteGraphApi() {
+  const { LiteGraph, LGraph, LGraphCanvas } = window;
+  if (!LiteGraph || !LGraph || !LGraphCanvas) return null;
+  return { LiteGraph, LGraph, LGraphCanvas };
+}
+
 function getNodeRuntime(instanceId) {
   return state.run?.nodes?.[instanceId] ?? null;
 }
 
 function getNodeProgress(node) {
-  if (!node?.items?.length) return 0;
-  return node.items.reduce((sum, item) => sum + (item.progress ?? 0), 0) / node.items.length;
+  if (node?.items?.length) {
+    return node.items.reduce((sum, item) => sum + (item.progress ?? 0), 0) / node.items.length;
+  }
+  const counters = node?.counters;
+  if (!counters?.total) return 0;
+  return Math.max(0, Math.min(1, counters.completed / counters.total));
+}
+
+function graphKey() {
+  if (!state.graph) return null;
+  return `${state.graph.workflow}:${state.graph.version}`;
+}
+
+function saveCurrentPositions() {
+  if (!liteGraphGraph) return;
+  const key = graphKey();
+  if (!key) return;
+  const positions = new Map();
+  for (const node of liteGraphGraph._nodes || []) {
+    const instanceId = node.properties?.instanceId;
+    if (!instanceId || !Array.isArray(node.pos)) continue;
+    positions.set(instanceId, [node.pos[0], node.pos[1]]);
+  }
+  nodePositionsByGraph.set(key, positions);
+}
+
+function statusTheme(status, streaming) {
+  if (status === "failed") {
+    return {
+      color: "#d86b6b",
+      bgcolor: "#fdecec",
+      boxcolor: "#c14c4c",
+      text: "#3d1111",
+      muted: "#7a3131",
+    };
+  }
+  if (status === "completed") {
+    return {
+      color: "#1e88e5",
+      bgcolor: "#e8f3ff",
+      boxcolor: "#1565c0",
+      text: "#12283f",
+      muted: "#49627f",
+    };
+  }
+  if (status === "running" || streaming) {
+    return {
+      color: "#f2a93b",
+      bgcolor: "#fff5df",
+      boxcolor: "#d18e17",
+      text: "#402d11",
+      muted: "#7d6337",
+    };
+  }
+  return {
+    color: "#94a3b8",
+    bgcolor: "#eef2f7",
+    boxcolor: "#7b8ca3",
+    text: "#1c232d",
+    muted: "#65717f",
+  };
 }
 
 export function computeGraphLayout(graph) {
@@ -29,7 +102,7 @@ export function computeGraphLayout(graph) {
   const positions = new Map();
   for (const [level, ids] of lanes.entries()) {
     ids.forEach((id, index) => {
-      positions.set(id, { x: 48 + level * 220, y: 42 + index * 118 });
+      positions.set(id, { x: 48 + level * 280, y: 52 + index * 156 });
     });
   }
 
@@ -37,23 +110,199 @@ export function computeGraphLayout(graph) {
   const maxLane = Math.max(1, ...Array.from(lanes.values()).map((value) => value.length));
   return {
     positions,
-    width: 240 + maxLevel * 220,
-    height: 120 + maxLane * 118,
+    width: 320 + maxLevel * 280,
+    height: 180 + maxLane * 156,
+  };
+}
+
+function ensureLiteGraphRegistration() {
+  const api = liteGraphApi();
+  if (!api || liteGraphRegistered) return api;
+  const { LiteGraph } = api;
+
+  function WorkgraphRuntimeNode() {
+    this.size = [220, 106];
+    this.properties = {
+      instanceId: "",
+      nodeId: "",
+      fullTitle: "",
+      metaLine: "",
+      durationLine: "",
+      progress: 0,
+      loopIterations: null,
+      streaming: false,
+      selected: false,
+      theme: statusTheme("pending", false),
+    };
+  }
+
+  WorkgraphRuntimeNode.title = "Workgraph";
+  WorkgraphRuntimeNode.prototype.onDrawForeground = function onDrawForeground(ctx) {
+    const properties = this.properties || {};
+    const theme = properties.theme || statusTheme("pending", false);
+    const width = this.size[0];
+    const progress = Math.max(0, Math.min(1, properties.progress ?? 0));
+
+    ctx.save();
+    ctx.font = "600 12px system-ui, sans-serif";
+    ctx.fillStyle = properties.selected ? theme.boxcolor : theme.text;
+    ctx.fillText(properties.metaLine || "", 14, 46, width - 28);
+
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.fillStyle = theme.muted;
+    ctx.fillText(properties.durationLine || "", 14, 64, width - 28);
+
+    if (properties.loopIterations && properties.loopIterations > 1) {
+      ctx.font = "600 11px system-ui, sans-serif";
+      ctx.fillStyle = "#9b6b19";
+      ctx.fillText(`↺ ${properties.loopIterations}x`, 14, 82, 48);
+      ctx.beginPath();
+      ctx.strokeStyle = "#d39b30";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.moveTo(42, 76);
+      ctx.bezierCurveTo(4, 46, width - 4, 46, width - 42, 76);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    const barX = 118;
+    const barY = 75;
+    const barWidth = width - barX - 16;
+    ctx.fillStyle = "rgba(64, 78, 97, 0.12)";
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barWidth, 9, 4.5);
+    ctx.fill();
+    ctx.fillStyle = theme.boxcolor;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, Math.max(4, barWidth * progress), 9, 4.5);
+    ctx.fill();
+
+    if (properties.streaming) {
+      ctx.font = "700 14px system-ui, sans-serif";
+      ctx.fillStyle = "#d18e17";
+      ctx.fillText("...", width - 34, 22, 20);
+    }
+    ctx.restore();
+  };
+
+  LiteGraph.registerNodeType(WORKGRAPH_NODE_TYPE, WorkgraphRuntimeNode);
+  liteGraphRegistered = true;
+  return api;
+}
+
+function resizeCanvas() {
+  if (!liteGraphCanvas) return;
+  const container = $("graph-canvas");
+  const canvas = $("graph-canvas-surface");
+  const width = Math.max(520, Math.floor(container.clientWidth || 520));
+  const height = Math.max(280, Math.floor(container.clientHeight || 280));
+  canvas.style.height = `${height}px`;
+  liteGraphCanvas.resize(width, height);
+}
+
+function ensureCanvas(onSelectNode) {
+  const api = ensureLiteGraphRegistration();
+  if (!api) return null;
+  const { LGraph, LGraphCanvas } = api;
+
+  if (!liteGraphGraph) {
+    liteGraphGraph = new LGraph();
+  }
+  if (!liteGraphCanvas) {
+    const canvas = $("graph-canvas-surface");
+    liteGraphCanvas = new LGraphCanvas(canvas, liteGraphGraph, { skip_rendering: false, autoresize: false });
+    liteGraphCanvas.background_image = null;
+    liteGraphCanvas.clear_background_color = "#e6edf5";
+    liteGraphCanvas.render_shadows = false;
+    liteGraphCanvas.show_info = false;
+    liteGraphCanvas.allow_dragcanvas = true;
+    liteGraphCanvas.allow_dragnodes = true;
+    liteGraphCanvas.allow_searchbox = false;
+    liteGraphCanvas.allow_reconnect_links = false;
+    liteGraphCanvas.multi_select = false;
+    liteGraphCanvas.onNodeSelected = (node) => {
+      const instanceId = node?.properties?.instanceId;
+      if (instanceId && instanceId !== state.selectedNodeId) {
+        onSelectNode(instanceId);
+      }
+    };
+    canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+  } else {
+    liteGraphCanvas.onNodeSelected = (node) => {
+      const instanceId = node?.properties?.instanceId;
+      if (instanceId && instanceId !== state.selectedNodeId) {
+        onSelectNode(instanceId);
+      }
+    };
+  }
+
+  if (!resizeObserver && typeof ResizeObserver !== "undefined") {
+    resizeObserver = new ResizeObserver(() => resizeCanvas());
+    resizeObserver.observe($("graph-canvas"));
+  }
+
+  resizeCanvas();
+  return api;
+}
+
+function setGraphVisibility(showGraph) {
+  $("graph-canvas-surface").classList.toggle("hidden", !showGraph);
+  $("graph-canvas-empty").classList.toggle("hidden", showGraph);
+}
+
+function buildNodeProperties(node) {
+  const runtime = getNodeRuntime(node.instance_id);
+  const status = runtime?.status ?? node.status ?? "pending";
+  const streaming = state.streamingNodes.has(node.instance_id);
+  const counters = runtime?.counters;
+  const progress = getNodeProgress(runtime);
+  const theme = statusTheme(status, streaming);
+
+  const metaLine = counters && counters.total > 1
+    ? `✓ ${counters.completed} · ▸ ${counters.running} · ✗ ${counters.failed}`
+    : status;
+
+  return {
+    instanceId: node.instance_id,
+    nodeId: node.node_id,
+    fullTitle: node.node_id,
+    metaLine,
+    durationLine: runtime?.duration_ms != null ? formatDuration(runtime.duration_ms) : "waiting",
+    progress,
+    loopIterations: node.loop_iterations ?? null,
+    streaming,
+    selected: state.selectedNodeId === node.instance_id,
+    theme,
   };
 }
 
 export function renderGraph({ onSelectNode }) {
   const container = $("graph-canvas");
-  container.replaceChildren();
+  const empty = $("graph-canvas-empty");
+  const warningContainer = $("graph-warnings");
+
+  warningContainer.replaceChildren();
   if (!state.graph) {
-    container.textContent = "No workflow selected.";
-    $("graph-warnings").classList.add("hidden");
+    empty.textContent = "No workflow selected.";
+    $("graph-caption").textContent = "Select a workflow or run to render the graph.";
+    warningContainer.classList.add("hidden");
+    setGraphVisibility(false);
+    if (liteGraphGraph) {
+      liteGraphGraph.clear();
+    }
     return;
   }
 
+  const api = ensureCanvas(onSelectNode);
+  if (!api) {
+    empty.textContent = "LiteGraph failed to load.";
+    setGraphVisibility(false);
+    return;
+  }
+  const { LiteGraph } = api;
+
   $("graph-caption").textContent = `${state.graph.workflow} · ${state.graph.version}`;
-  const warningContainer = $("graph-warnings");
-  warningContainer.replaceChildren();
   if (state.graph.warnings?.length) {
     warningContainer.classList.remove("hidden");
     for (const warning of state.graph.warnings) {
@@ -65,148 +314,62 @@ export function renderGraph({ onSelectNode }) {
   } else {
     warningContainer.classList.add("hidden");
   }
+
+  saveCurrentPositions();
+  const key = graphKey();
+  const savedPositions = nodePositionsByGraph.get(key) ?? new Map();
   const layout = computeGraphLayout(state.graph);
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", `0 0 ${layout.width} ${layout.height}`);
-  svg.setAttribute("class", "graph-svg");
+  const previousScale = liteGraphCanvas?.ds?.scale ?? 0.8;
+  const previousOffset = liteGraphCanvas?.ds?.offset ? [...liteGraphCanvas.ds.offset] : [24, 24];
+  const nodeMap = new Map();
 
+  liteGraphGraph.clear();
+
+  for (const nodeData of state.graph.nodes) {
+    const graphNode = LiteGraph.createNode(WORKGRAPH_NODE_TYPE);
+    if (!graphNode) continue;
+    const defaults = layout.positions.get(nodeData.instance_id) ?? { x: 32, y: 32 };
+    const stored = savedPositions.get(nodeData.instance_id);
+    graphNode.pos = stored ? [...stored] : [defaults.x, defaults.y];
+    graphNode.size = [220, 106];
+    graphNode.title = formatNodeLabel(nodeData.node_id, 28).text;
+    graphNode.properties = buildNodeProperties(nodeData);
+    graphNode.color = graphNode.properties.theme.color;
+    graphNode.bgcolor = graphNode.properties.theme.bgcolor;
+    graphNode.boxcolor = graphNode.properties.theme.boxcolor;
+    graphNode.addOutput("", "");
+    for (const _dependency of nodeData.depends_on) {
+      graphNode.addInput("", "");
+    }
+    if (nodeData.loop_iterations && nodeData.loop_iterations > 1) {
+      graphNode.addInput("loop", "");
+    }
+    liteGraphGraph.add(graphNode);
+    nodeMap.set(nodeData.instance_id, graphNode);
+  }
+
+  const sourceMap = new Map(state.graph.nodes.map((node) => [node.instance_id, node]));
   for (const edge of state.graph.edges) {
-    const from = layout.positions.get(edge.from);
-    const to = layout.positions.get(edge.to);
-    if (!from || !to) continue;
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    const startX = from.x + 150;
-    const startY = from.y + 38;
-    const endX = to.x;
-    const endY = to.y + 38;
-    const controlX = (startX + endX) / 2;
-    path.setAttribute("d", `M ${startX} ${startY} C ${controlX} ${startY}, ${controlX} ${endY}, ${endX} ${endY}`);
-    path.setAttribute("class", "graph-edge");
-    svg.append(path);
+    const from = nodeMap.get(edge.from);
+    const to = nodeMap.get(edge.to);
+    const targetInfo = sourceMap.get(edge.to);
+    if (!from || !to || !targetInfo) continue;
+    const targetSlot = Math.max(0, targetInfo.depends_on.indexOf(edge.from));
+    from.connect(0, to, targetSlot);
   }
 
-  for (const node of state.graph.nodes) {
-    if (!node.loop_iterations || node.loop_iterations < 2) continue;
-    const { x, y } = layout.positions.get(node.instance_id);
-    const loopPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    loopPath.setAttribute(
-      "d",
-      `M ${x + 34} ${y + 8} C ${x - 28} ${y - 34}, ${x + 178} ${y - 34}, ${x + 116} ${y + 8}`,
-    );
-    loopPath.setAttribute("class", "graph-loop-edge");
-    svg.append(loopPath);
-
-    const loopLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    loopLabel.setAttribute("x", String(x + 56));
-    loopLabel.setAttribute("y", String(y - 14));
-    loopLabel.setAttribute("class", "graph-loop-label");
-    loopLabel.textContent = `↺ ${node.loop_iterations}x`;
-    svg.append(loopLabel);
+  for (const nodeData of state.graph.nodes) {
+    if (!nodeData.loop_iterations || nodeData.loop_iterations < 2) continue;
+    const graphNode = nodeMap.get(nodeData.instance_id);
+    if (!graphNode) continue;
+    const loopSlot = Math.max(0, graphNode.inputs.length - 1);
+    graphNode.connect(0, graphNode, loopSlot);
   }
 
-  for (const node of state.graph.nodes) {
-    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    const runtime = getNodeRuntime(node.instance_id);
-    const status = runtime?.status ?? node.status ?? "pending";
-    const progress = getNodeProgress(runtime);
-    const counters = runtime?.counters;
-    const { x, y } = layout.positions.get(node.instance_id);
-    const streaming = state.streamingNodes.has(node.instance_id);
-    group.setAttribute(
-      "class",
-      `graph-node ${status}${streaming ? " streaming" : ""}${state.selectedNodeId === node.instance_id ? " active" : ""}`,
-    );
-    group.dataset.value = node.instance_id;
-
-    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    rect.setAttribute("x", String(x));
-    rect.setAttribute("y", String(y));
-    rect.setAttribute("width", "150");
-    rect.setAttribute("height", "76");
-    rect.setAttribute("rx", "18");
-    group.append(rect);
-
-    const tooltip = document.createElementNS("http://www.w3.org/2000/svg", "title");
-    tooltip.textContent = node.node_id;
-    group.append(tooltip);
-
-    const clipPath = document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
-    const clipId = `node-title-clip-${node.instance_id}`;
-    clipPath.setAttribute("id", clipId);
-    const clipRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    clipRect.setAttribute("x", String(x + 12));
-    clipRect.setAttribute("y", String(y + 8));
-    clipRect.setAttribute("width", "126");
-    clipRect.setAttribute("height", "18");
-    clipPath.append(clipRect);
-    svg.append(clipPath);
-
-    const label = formatNodeLabel(node.node_id);
-    const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    title.setAttribute("x", String(x + 12));
-    title.setAttribute("y", String(y + 23));
-    title.setAttribute("font-size", "13");
-    title.setAttribute("font-weight", "700");
-    title.setAttribute("clip-path", `url(#${clipId})`);
-    title.textContent = label.text;
-    group.append(title);
-
-    if (label.truncated) {
-      const truncateBadge = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      truncateBadge.setAttribute("cx", String(x + 138));
-      truncateBadge.setAttribute("cy", String(y + 18));
-      truncateBadge.setAttribute("r", "4");
-      truncateBadge.setAttribute("class", "graph-truncate-indicator");
-      group.append(truncateBadge);
-    }
-
-    if (streaming) {
-      const typing = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      typing.setAttribute("x", String(x + 112));
-      typing.setAttribute("y", String(y + 23));
-      typing.setAttribute("font-size", "14");
-      typing.setAttribute("class", "typing-indicator");
-      typing.textContent = "...";
-      group.append(typing);
-    }
-
-    const meta = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    meta.setAttribute("x", String(x + 12));
-    meta.setAttribute("y", String(y + 42));
-    meta.setAttribute("font-size", "11");
-    meta.textContent = counters && counters.total > 1
-      ? `✓ ${counters.completed} · ▸ ${counters.running} · ✗ ${counters.failed}`
-      : (node.loop_iterations && node.loop_iterations > 1 ? `loop ${node.loop_iterations}x · ${status}` : status);
-    group.append(meta);
-
-    const badge = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    badge.setAttribute("x", String(x + 12));
-    badge.setAttribute("y", String(y + 60));
-    badge.setAttribute("font-size", "10");
-    badge.textContent = runtime?.duration_ms != null ? formatDuration(runtime.duration_ms) : "waiting";
-    group.append(badge);
-
-    const progressBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    progressBg.setAttribute("x", String(x + 92));
-    progressBg.setAttribute("y", String(y + 55));
-    progressBg.setAttribute("width", "46");
-    progressBg.setAttribute("height", "8");
-    progressBg.setAttribute("rx", "4");
-    progressBg.setAttribute("class", "graph-progress-bg");
-    group.append(progressBg);
-
-    const progressBar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    progressBar.setAttribute("x", String(x + 92));
-    progressBar.setAttribute("y", String(y + 55));
-    progressBar.setAttribute("width", String(Math.max(3, 46 * progress)));
-    progressBar.setAttribute("height", "8");
-    progressBar.setAttribute("rx", "4");
-    progressBar.setAttribute("class", "graph-progress-bar");
-    group.append(progressBar);
-
-    group.addEventListener("click", () => onSelectNode(node.instance_id));
-    svg.append(group);
-  }
-
-  container.append(svg);
+  setGraphVisibility(true);
+  resizeCanvas();
+  liteGraphCanvas.ds.scale = previousScale;
+  liteGraphCanvas.ds.offset = previousOffset;
+  liteGraphCanvas.setDirty(true, true);
+  container.classList.remove("empty-state");
 }

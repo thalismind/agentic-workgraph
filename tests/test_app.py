@@ -40,6 +40,8 @@ def test_app_exposes_workflow_graph():
     assert ui.status_code == 200
     assert "Agentic Workgraph" in ui.text
     assert "Workflow History" in ui.text
+    assert "/ui/static/vendor/litegraph.css" in ui.text
+    assert "/ui/static/vendor/litegraph.js" in ui.text
     assert "graph-warnings" in ui.text
     assert "run-workflow-button" in ui.text
     assert "focus-debugger-button" in ui.text
@@ -70,9 +72,19 @@ def test_app_exposes_workflow_graph():
 
     graph_script = client.get("/ui/static/graph.js")
     assert graph_script.status_code == 200
+    assert "LiteGraph" in graph_script.text
+    assert "LGraphCanvas" in graph_script.text
     assert "computeGraphLayout" in graph_script.text
     assert "renderGraph" in graph_script.text
     assert "streamingNodes" in graph_script.text
+
+    litegraph_script = client.get("/ui/static/vendor/litegraph.js")
+    assert litegraph_script.status_code == 200
+    assert "LiteGraph" in litegraph_script.text
+
+    litegraph_css = client.get("/ui/static/vendor/litegraph.css")
+    assert litegraph_css.status_code == 200
+    assert ".litegraph" in litegraph_css.text
 
     router_script = client.get("/ui/static/router.js")
     assert router_script.status_code == 200

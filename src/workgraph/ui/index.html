@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>agentic-workgraph</title>
     <link rel="stylesheet" href="/ui/static/styles.css" />
+    <link rel="stylesheet" href="/ui/static/vendor/litegraph.css" />
   </head>
   <body>
     <div class="bg-orbit bg-orbit-a"></div>
@@ -13,7 +14,7 @@
       <header class="hero">
         <div>
           <h1>Agentic Workgraph</h1>
-          <p class="lede">Workflow History</p>
+          <h2>Workflow History</h2>
         </div>
         <div class="hero-actions">
           <div id="ws-status-indicator" class="ws-indicator disconnected" aria-live="polite">
@@ -47,7 +48,10 @@
               <h3>Graph Canvas</h3>
               <span id="graph-caption" class="muted small">Select a workflow or run to render the graph.</span>
             </div>
-            <div id="graph-canvas" class="graph-canvas empty-state">No workflow selected.</div>
+            <div id="graph-canvas" class="graph-canvas">
+              <canvas id="graph-canvas-surface" class="graph-canvas-surface hidden"></canvas>
+              <div id="graph-canvas-empty" class="graph-canvas-empty empty-state">No workflow selected.</div>
+            </div>
             <div id="graph-warnings" class="graph-warnings hidden"></div>
           </section>
           <div id="versions-list" class="version-row"></div>
@@ -179,6 +183,7 @@
       </article>
     </template>
 
+    <script src="/ui/static/vendor/litegraph.js"></script>
     <script type="module" src="/ui/static/app.js"></script>
   </body>
 </html>
