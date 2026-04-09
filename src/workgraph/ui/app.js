@@ -117,6 +117,93 @@ function buildArtifactPreview(artifact) {
   };
 }
 
+function jsonPrimitiveClass(value) {
+  if (value === null) return "json-null";
+  if (typeof value === "string") return "json-string";
+  if (typeof value === "number") return "json-number";
+  if (typeof value === "boolean") return "json-boolean";
+  return "";
+}
+
+function formatJsonPrimitive(value) {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (value === null) return "null";
+  return String(value);
+}
+
+function createJsonKeyNode(key) {
+  const fragment = document.createDocumentFragment();
+  if (key != null) {
+    const keyNode = document.createElement("span");
+    keyNode.className = "json-key";
+    keyNode.textContent = `${JSON.stringify(String(key))}: `;
+    fragment.append(keyNode);
+  }
+  return fragment;
+}
+
+function createJsonTree(value, key = null) {
+  if (value !== null && typeof value === "object") {
+    const isArray = Array.isArray(value);
+    const entries = isArray ? value.map((item, index) => [index, item]) : Object.entries(value);
+    const details = document.createElement("details");
+    details.className = "json-branch";
+    details.open = true;
+
+    const summary = document.createElement("summary");
+    summary.className = "json-branch-summary";
+    summary.append(createJsonKeyNode(key));
+
+    const opener = document.createElement("span");
+    opener.className = "json-punctuation";
+    opener.textContent = isArray ? "[" : "{";
+    summary.append(opener);
+
+    const meta = document.createElement("span");
+    meta.className = "json-summary";
+    if (entries.length === 0) {
+      meta.textContent = isArray ? "]" : "}";
+    } else {
+      meta.textContent = ` ${entries.length} item${entries.length === 1 ? "" : "s"} `;
+      const closer = document.createElement("span");
+      closer.className = "json-punctuation";
+      closer.textContent = isArray ? "]" : "}";
+      summary.append(meta, closer);
+    }
+    if (entries.length === 0) {
+      summary.append(meta);
+    }
+
+    details.append(summary);
+    if (entries.length > 0) {
+      const children = document.createElement("div");
+      children.className = "json-children";
+      for (const [childKey, childValue] of entries) {
+        children.append(createJsonTree(childValue, childKey));
+      }
+      details.append(children);
+    }
+    return details;
+  }
+
+  const leaf = document.createElement("div");
+  leaf.className = "json-leaf";
+  leaf.append(createJsonKeyNode(key));
+  const valueNode = document.createElement("span");
+  valueNode.className = jsonPrimitiveClass(value);
+  valueNode.textContent = formatJsonPrimitive(value);
+  leaf.append(valueNode);
+  return leaf;
+}
+
+function renderJsonValue(container, value, { compact = false } = {}) {
+  container.replaceChildren();
+  const root = document.createElement("div");
+  root.className = `json-viewer${compact ? " compact" : ""}`;
+  root.append(createJsonTree(value));
+  container.append(root);
+}
+
 function closeLiveSocket() {
   closeSocket();
   state.wsConnected = false;
@@ -346,9 +433,18 @@ function renderWorkflows() {
   const workflowsList = $("workflows-list");
   const template = $("workflow-card-template");
   workflowsList.replaceChildren();
-  $("workflow-count").textContent = String(state.workflows.length);
+  const filter = state.workflowFilter.trim().toLowerCase();
+  const visibleWorkflows = state.workflows.filter((workflow) =>
+    !filter || workflow.name.toLowerCase().includes(filter),
+  );
+  $("workflow-count").textContent = String(visibleWorkflows.length);
 
-  for (const workflow of state.workflows) {
+  if (visibleWorkflows.length === 0) {
+    workflowsList.innerHTML = `<div class="empty-state">No workflows match this search.</div>`;
+    return;
+  }
+
+  for (const workflow of visibleWorkflows) {
     const node = template.content.firstElementChild.cloneNode(true);
     node.dataset.value = workflow.name;
     node.querySelector(".workflow-name").textContent = workflow.name;
@@ -445,8 +541,13 @@ function renderDetailItems(containerId, items, emptyText, mapFn) {
     node.querySelector(".detail-item-title").textContent = mapped.title;
     node.querySelector(".detail-item-meta").textContent = mapped.meta;
     const body = node.querySelector(".detail-item-body");
-    body.textContent = mapped.body;
+    body.replaceChildren();
     body.classList.toggle("detail-item-body-code", Boolean(mapped.bodyCode));
+    if (mapped.jsonValue !== undefined) {
+      renderJsonValue(body, mapped.jsonValue, { compact: true });
+    } else {
+      body.textContent = mapped.body;
+    }
     const head = node.querySelector(".detail-item-head");
     const expanded = state.expandedDetailItems.has(itemKey);
     node.classList.toggle("collapsed", !expanded);
@@ -513,7 +614,11 @@ function renderNodeInspector() {
       key: `node-item:${state.selectedNodeId}:${item.index}`,
       title: `item ${item.index}`,
       meta: `${item.status} · ${formatDuration(item.duration_ms)}`,
-      body: `${JSON.stringify(item.output, null, 2)}\nprogress: ${Math.round((item.progress ?? 0) * 100)}%${item.progress_desc ? ` · ${item.progress_desc}` : ""}`,
+      jsonValue: {
+        output: item.output,
+        progress: item.progress ?? 0,
+        progress_desc: item.progress_desc ?? null,
+      },
       bodyCode: true,
       active: item.index === state.selectedItemIndex,
       onClick: async () => {
@@ -554,27 +659,15 @@ function updateRunSummary() {
     return;
   }
   const artifact = state.run.final_output[0];
-  const { highlights, preview } = buildArtifactPreview(artifact);
-  artifactPanel.innerHTML = `
-    <strong>Final Artifact</strong>
-    <br />
-    <span class="muted">Terminal node:</span> ${state.run.final_node_id ?? "unknown"}
-    <div class="artifact-highlights"></div>
-    <pre class="artifact-preview"></pre>
-  `;
-  const highlightsRoot = artifactPanel.querySelector(".artifact-highlights");
-  for (const highlight of highlights) {
-    const block = document.createElement("div");
-    block.className = "artifact-highlight";
-    block.innerHTML = `
-      <span class="artifact-highlight-label">${highlight.label}</span>
-      <pre class="artifact-highlight-value"></pre>
-    `;
-    block.querySelector(".artifact-highlight-value").textContent = highlight.value;
-    highlightsRoot.append(block);
-  }
-  artifactPanel.querySelector(".artifact-preview").textContent =
-    `${preview.slice(0, 1800)}${preview.length > 1800 ? "\n..." : ""}`;
+  artifactPanel.replaceChildren();
+  const heading = document.createElement("strong");
+  heading.textContent = "Final Artifact";
+  const meta = document.createElement("div");
+  meta.className = "muted";
+  meta.textContent = `Terminal node: ${state.run.final_node_id ?? "unknown"}`;
+  const viewer = document.createElement("div");
+  renderJsonValue(viewer, artifact);
+  artifactPanel.append(heading, meta, viewer);
   renderCollapsedSections();
 }
 
@@ -649,7 +742,8 @@ function renderDetailPanels() {
       key: `trace:${item.name}:${item.start_time ?? item.end_time ?? item.status}`,
       title: item.name,
       meta: item.status,
-      body: JSON.stringify(item.attributes, null, 2),
+      jsonValue: item.attributes ?? {},
+      bodyCode: true,
     }),
   );
   renderCollapsedSections();
@@ -896,6 +990,19 @@ async function loadWorkflowHistory() {
   syncHashFromState(state.applyingHashRoute);
 }
 
+async function waitForRunInWorkflowHistory(workflowName, runId, attempts = 12, delayMs = 250) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const runsPayload = await fetchJson(`/api/workflows/${workflowName}/runs`);
+    if (runsPayload.runs.some((run) => run.run_id === runId)) {
+      return true;
+    }
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return false;
+}
+
 async function applyHashRoute() {
   if (state.workflows.length === 0) {
     renderWorkflows();
@@ -1009,11 +1116,14 @@ async function launchWorkflowRunWithPayload(payload = { args: [], kwargs: {} }) 
   try {
     setLaunchInputs(payload.args ?? [], payload.kwargs ?? {}, { force: true });
     const response = await postJson(`/api/workflows/${state.selectedWorkflow}/runs`, payload);
+    const launchedWorkflow = state.selectedWorkflow;
+    const launchedRunId = response.run_id;
     state.selectedVersion = null;
-    state.selectedRunId = response.run_id;
+    state.selectedRunId = launchedRunId;
     state.selectedNodeId = null;
     state.selectedItemIndex = 0;
     setLaunchMenuOpen(false);
+    await waitForRunInWorkflowHistory(launchedWorkflow, launchedRunId);
     await refresh();
   } finally {
     state.launchingRun = false;
@@ -1046,6 +1156,10 @@ $("run-workflow-args").addEventListener("input", () => {
 });
 $("run-workflow-kwargs").addEventListener("input", () => {
   state.launchInputsDirty = true;
+});
+$("workflow-search").addEventListener("input", (event) => {
+  state.workflowFilter = event.target.value ?? "";
+  renderWorkflows();
 });
 $("upstream-result-select").addEventListener("change", async (event) => {
   const runId = event.target.value;

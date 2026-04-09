@@ -1,5 +1,6 @@
 export const state = {
   workflows: [],
+  workflowFilter: "",
   selectedWorkflow: null,
   selectedVersion: null,
   selectedRunId: null,

@@ -154,6 +154,25 @@ h2 {
   justify-content: flex-end;
 }
 
+.workflow-count-line {
+  margin: 6px 0 0;
+}
+
+.workflow-search {
+  margin-bottom: 14px;
+}
+
+.workflow-search-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(245, 248, 252, 0.9);
+  color: var(--ink);
+  font: inherit;
+}
+
 .run-launcher {
   position: relative;
 }
@@ -349,6 +368,78 @@ h2 {
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-x: auto;
+}
+
+.json-viewer {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(245, 248, 252, 0.9);
+  color: var(--ink);
+  font-family: "SFMono-Regular", "Consolas", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  overflow-x: auto;
+}
+
+.json-viewer.compact {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.json-branch {
+  margin-left: 0;
+}
+
+.json-branch-summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.json-branch-summary::-webkit-details-marker {
+  display: none;
+}
+
+.json-children {
+  margin-left: 18px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(26, 26, 26, 0.08);
+}
+
+.json-leaf,
+.json-branch-summary {
+  word-break: break-word;
+}
+
+.json-key {
+  color: #245ca6;
+}
+
+.json-string {
+  color: #0a7a54;
+}
+
+.json-number {
+  color: #8a5a00;
+}
+
+.json-boolean {
+  color: #7a2f8f;
+}
+
+.json-null {
+  color: #8a2323;
+}
+
+.json-punctuation,
+.json-summary {
+  color: var(--muted);
 }
 
 .artifact-highlights {
@@ -595,15 +686,7 @@ h2 {
 .detail-item-body-code {
   display: block;
   margin-top: 10px;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: rgba(245, 248, 252, 0.9);
-  color: var(--ink);
-  font-family: "SFMono-Regular", "Consolas", monospace;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  overflow-x: auto;
+  white-space: normal;
 }
 
 .detail-item.collapsed .detail-item-body {

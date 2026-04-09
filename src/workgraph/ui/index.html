@@ -29,8 +29,23 @@
       <section id="main-layout" class="layout">
         <aside class="panel workflows-panel">
           <div class="panel-header">
-            <h2>Workflows</h2>
-            <span id="workflow-count" class="pill">0</span>
+            <div>
+              <h2>Workflows</h2>
+              <p id="workflow-count-line" class="muted small workflow-count-line">
+                <span id="workflow-count" class="pill">0</span>
+                visible
+              </p>
+            </div>
+          </div>
+          <div class="workflow-search">
+            <input
+              id="workflow-search"
+              class="workflow-search-input"
+              type="search"
+              placeholder="Search workflows"
+              autocomplete="off"
+              spellcheck="false"
+            />
           </div>
           <div id="workflows-list" class="stack"></div>
         </aside>
@@ -215,7 +230,7 @@
             <span class="detail-item-meta"></span>
           </div>
         </button>
-        <p class="detail-item-body muted"></p>
+        <div class="detail-item-body muted"></div>
       </article>
     </template>
 
