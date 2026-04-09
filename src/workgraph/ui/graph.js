@@ -106,7 +106,7 @@ export function computeGraphLayout(graph) {
   const positions = new Map();
   for (const [level, ids] of lanes.entries()) {
     ids.forEach((id, index) => {
-      positions.set(id, { x: 48 + level * 280, y: 52 + index * 156 });
+      positions.set(id, { x: 48 + level * 280, y: 52 + index * 168 });
     });
   }
 
@@ -115,7 +115,7 @@ export function computeGraphLayout(graph) {
   return {
     positions,
     width: 320 + maxLevel * 280,
-    height: 180 + maxLane * 156,
+    height: 196 + maxLane * 168,
   };
 }
 
@@ -133,7 +133,7 @@ function ensureLiteGraphRegistration() {
   LiteGraph.CONNECTING_LINK_COLOR = "#00e5b0";
 
   function WorkgraphRuntimeNode() {
-    this.size = [220, 106];
+    this.size = [220, 118];
     this.properties = {
       instanceId: "",
       nodeId: "",
@@ -158,28 +158,28 @@ function ensureLiteGraphRegistration() {
     ctx.save();
     ctx.font = "700 12px system-ui, sans-serif";
     ctx.fillStyle = theme.text;
-    ctx.fillText(properties.metaLine || "", 14, 46, width - 28);
+    ctx.fillText(properties.metaLine || "", 14, 42, width - 28);
 
     ctx.font = "12px system-ui, sans-serif";
     ctx.fillStyle = theme.muted;
-    ctx.fillText(properties.durationLine || "", 14, 64, width - 28);
+    ctx.fillText(properties.durationLine || "", 14, 60, width - 28);
 
     if (properties.loopIterations && properties.loopIterations > 1) {
       ctx.font = "600 11px system-ui, sans-serif";
       ctx.fillStyle = "#8b6722";
-      ctx.fillText(`↺ ${properties.loopIterations}x`, 14, 82, 48);
+      ctx.fillText(`↺ ${properties.loopIterations}x`, 14, 78, 48);
       ctx.beginPath();
       ctx.strokeStyle = "#d4a537";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([5, 4]);
-      ctx.moveTo(42, 76);
-      ctx.bezierCurveTo(4, 46, width - 4, 46, width - 42, 76);
+      ctx.moveTo(42, 72);
+      ctx.bezierCurveTo(4, 42, width - 4, 42, width - 42, 72);
       ctx.stroke();
       ctx.setLineDash([]);
     }
 
     const barX = 118;
-    const barY = 75;
+    const barY = 70;
     const barWidth = width - barX - 16;
     ctx.fillStyle = "rgba(64, 78, 97, 0.12)";
     ctx.beginPath();
@@ -187,7 +187,7 @@ function ensureLiteGraphRegistration() {
     ctx.fill();
     ctx.fillStyle = theme.boxcolor;
     ctx.beginPath();
-    ctx.roundRect(barX, barY, Math.max(4, barWidth * progress), 9, 4.5);
+    ctx.roundRect(barX, barY, Math.max(6, barWidth * progress), 9, 4.5);
     ctx.fill();
 
     if (properties.streaming) {
@@ -358,7 +358,7 @@ export function renderGraph({ onSelectNode }) {
     const defaults = layout.positions.get(nodeData.instance_id) ?? { x: 32, y: 32 };
     const stored = savedPositions.get(nodeData.instance_id);
     graphNode.pos = stored ? [...stored] : [defaults.x, defaults.y];
-    graphNode.size = [220, 106];
+    graphNode.size = [220, 118];
     graphNode.title = formatNodeLabel(nodeData.node_id, 28).text;
     graphNode.properties = buildNodeProperties(nodeData);
     graphNode.color = graphNode.properties.theme.color;
