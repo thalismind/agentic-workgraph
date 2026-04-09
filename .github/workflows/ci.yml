@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: python:${{ matrix.python-version }}-bookworm
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
     strategy:
       fail-fast: false
       matrix:
@@ -23,6 +26,8 @@ jobs:
 
       - name: Verify workspace
         run: |
+          pwd
+          ls
           test -f pyproject.toml
           python --version
           git status --short
