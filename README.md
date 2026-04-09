@@ -100,6 +100,7 @@ Node functions are scalar. The runtime handles list-shaped execution, concurrenc
 ## Documentation
 
 - [`docs/workflow-authoring.md`](/workspace/data/coding/projects/agentic-workgraph/docs/workflow-authoring.md): how to design, register, test, and verify new workflows
+- [`docs/downstream-integration.md`](/workspace/data/coding/projects/agentic-workgraph/docs/downstream-integration.md): how to embed project-local workflow packages like Thalis with shared app wiring, fixtures, prompts, and deployment
 - [`docs/example-library.md`](/workspace/data/coding/projects/agentic-workgraph/docs/example-library.md): what each example workflow demonstrates
 - [`docs/agentic-patterns.md`](/workspace/data/coding/projects/agentic-workgraph/docs/agentic-patterns.md): guidance on pipeline, fan-out, branching, loops, scratchpads, and recovery
 
