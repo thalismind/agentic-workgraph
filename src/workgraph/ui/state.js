@@ -21,6 +21,8 @@ export const state = {
   traceRefreshTimer: null,
   workflowsRefreshTimer: null,
   launchingRun: false,
+  launchMenuOpen: false,
+  launchInputsDirty: false,
   applyingHashRoute: false,
   collapsedSections: {
     finalArtifact: false,
@@ -40,8 +42,12 @@ export async function fetchJson(path) {
   return response.json();
 }
 
-export async function postJson(path) {
-  const response = await fetch(path, { method: "POST" });
+export async function postJson(path, body = undefined) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status} ${path}`);
   }
@@ -101,6 +107,9 @@ export function setTab(tab) {
 
 export function renderRunButton() {
   const button = $("run-workflow-button");
+  const menuButton = $("run-workflow-menu-button");
   button.disabled = !state.selectedWorkflow || state.launchingRun;
+  menuButton.disabled = !state.selectedWorkflow || state.launchingRun;
   button.textContent = state.launchingRun ? "Starting..." : "Run Workflow";
+  menuButton.textContent = state.launchingRun ? "…" : "▾";
 }

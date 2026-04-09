@@ -130,6 +130,54 @@ function renderLayoutControls() {
   $("restore-layout-button").classList.toggle("hidden", !focused);
 }
 
+function parseJsonField(fieldId, fallbackLabel) {
+  const raw = $(fieldId).value.trim();
+  if (!raw) return fallbackLabel === "args" ? [] : {};
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Invalid ${fallbackLabel} JSON: ${error.message}`);
+  }
+}
+
+function setLaunchMenuError(message = "") {
+  const node = $("run-workflow-menu-error");
+  node.textContent = message;
+  node.classList.toggle("hidden", !message);
+}
+
+function serializeLaunchJson(value, fallback) {
+  return JSON.stringify(value ?? fallback, null, 2);
+}
+
+function setLaunchInputs(args = [], kwargs = {}, { force = false } = {}) {
+  if (state.launchInputsDirty && !force) return;
+  $("run-workflow-args").value = serializeLaunchJson(args, []);
+  $("run-workflow-kwargs").value = serializeLaunchJson(kwargs, {});
+  state.launchInputsDirty = false;
+}
+
+function syncLaunchInputsFromRun({ force = false } = {}) {
+  if (!state.run) {
+    setLaunchInputs([], {}, { force });
+    return;
+  }
+  setLaunchInputs(state.run.workflow_args ?? [], state.run.workflow_kwargs ?? {}, { force });
+}
+
+function renderLaunchMenu() {
+  const menu = $("run-workflow-menu");
+  const button = $("run-workflow-menu-button");
+  menu.classList.toggle("hidden", !state.launchMenuOpen);
+  button.setAttribute("aria-expanded", String(state.launchMenuOpen));
+}
+
+function setLaunchMenuOpen(open) {
+  state.launchMenuOpen = open;
+  if (!open) setLaunchMenuError("");
+  renderLaunchMenu();
+}
+
 function setSectionCollapsed(key, collapsed) {
   state.collapsedSections[key] = collapsed;
 }
@@ -164,7 +212,10 @@ function renderCollapsedSections() {
     const collapsed = Boolean(state.collapsedSections[section.key]);
     const button = $(section.buttonId);
     const content = $(section.contentId);
-    button.textContent = collapsed ? `Show ${section.label}` : "Collapse";
+    if (!button || !content) continue;
+    button.textContent = collapsed
+      ? (section.collapsedLabel ?? `Show ${section.label}`)
+      : (section.expandedLabel ?? "Collapse");
     button.setAttribute("aria-expanded", String(!collapsed));
     content.classList.toggle("hidden", collapsed);
     content.classList.toggle("collapsible-content", true);
@@ -658,6 +709,7 @@ function connectRunSocket() {
 async function loadRunDetail() {
   if (!state.selectedRunId) {
     $("detail-summary").textContent = "No run selected.";
+    setLaunchInputs([], {}, { force: true });
     return;
   }
 
@@ -669,6 +721,7 @@ async function loadRunDetail() {
 
   $("detail-title").textContent = state.run.run_id;
   $("detail-subtitle").textContent = `${state.run.workflow} · ${state.run.version}`;
+  syncLaunchInputsFromRun();
   updateRunSummary();
 
   renderDetailPanels();
@@ -718,6 +771,7 @@ async function loadWorkflowHistory() {
     state.nodeItems = [];
     state.streamText = "";
     state.streamingNodes.clear();
+    setLaunchInputs([], {}, { force: true });
     $("detail-summary").textContent = "No run selected.";
     renderDetailPanels();
   }
@@ -825,15 +879,24 @@ function scheduleWorkflowsRefresh(delayMs = 5000) {
 }
 
 async function launchWorkflowRun() {
+  if (state.launchMenuOpen) {
+    return launchWorkflowRunFromMenu();
+  }
+  return launchWorkflowRunWithPayload();
+}
+
+async function launchWorkflowRunWithPayload(payload = { args: [], kwargs: {} }) {
   if (!state.selectedWorkflow || state.launchingRun) return;
   state.launchingRun = true;
   renderRunButton();
   try {
-    const payload = await postJson(`/api/workflows/${state.selectedWorkflow}/runs`);
+    setLaunchInputs(payload.args ?? [], payload.kwargs ?? {}, { force: true });
+    const response = await postJson(`/api/workflows/${state.selectedWorkflow}/runs`, payload);
     state.selectedVersion = null;
-    state.selectedRunId = payload.run_id;
+    state.selectedRunId = response.run_id;
     state.selectedNodeId = null;
     state.selectedItemIndex = 0;
+    setLaunchMenuOpen(false);
     await refresh();
   } finally {
     state.launchingRun = false;
@@ -841,8 +904,35 @@ async function launchWorkflowRun() {
   }
 }
 
+async function launchWorkflowRunFromMenu() {
+  const args = parseJsonField("run-workflow-args", "args");
+  const kwargs = parseJsonField("run-workflow-kwargs", "kwargs");
+  if (!Array.isArray(args)) {
+    throw new Error("args JSON must parse to an array");
+  }
+  if (kwargs === null || Array.isArray(kwargs) || typeof kwargs !== "object") {
+    throw new Error("kwargs JSON must parse to an object");
+  }
+  await launchWorkflowRunWithPayload({ args, kwargs });
+}
+
 $("refresh-button").addEventListener("click", () => refresh().catch(console.error));
-$("run-workflow-button").addEventListener("click", () => launchWorkflowRun().catch(console.error));
+$("run-workflow-button").addEventListener("click", () => {
+  setLaunchMenuError("");
+  launchWorkflowRun().catch((error) => {
+    setLaunchMenuError(error.message);
+    console.error(error);
+  });
+});
+$("run-workflow-args").addEventListener("input", () => {
+  state.launchInputsDirty = true;
+});
+$("run-workflow-kwargs").addEventListener("input", () => {
+  state.launchInputsDirty = true;
+});
+$("run-workflow-menu-button").addEventListener("click", () => {
+  setLaunchMenuOpen(!state.launchMenuOpen);
+});
 $("focus-debugger-button").addEventListener("click", () => setDetailFocus(true));
 $("restore-layout-button").addEventListener("click", () => setDetailFocus(false));
 $("toggle-final-artifact").addEventListener("click", () => toggleSection("finalArtifact"));
@@ -858,6 +948,7 @@ renderRunButton();
 renderLayoutControls();
 renderWsStatus();
 renderCollapsedSections();
+renderLaunchMenu();
 startWsStatusClock();
 scheduleWorkflowsRefresh();
 

@@ -41,7 +41,34 @@
               <h2 id="history-title">Run History</h2>
               <p id="history-subtitle" class="muted">Select a workflow to inspect versions and recent runs.</p>
             </div>
-            <button id="run-workflow-button" class="refresh-button" type="button">Run Workflow</button>
+            <div class="run-launcher">
+              <div class="split-button">
+                <button id="run-workflow-button" class="refresh-button" type="button">Run Workflow</button>
+                <button
+                  id="run-workflow-menu-button"
+                  class="refresh-button split-toggle"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="run-workflow-menu"
+                  aria-label="Open workflow parameter menu"
+                >
+                  ▾
+                </button>
+              </div>
+              <div id="run-workflow-menu" class="run-menu hidden">
+                <div class="run-menu-body">
+                  <div class="run-menu-field">
+                    <label class="run-menu-label" for="run-workflow-args">args JSON</label>
+                    <textarea id="run-workflow-args" class="run-menu-input" spellcheck="false">[]</textarea>
+                  </div>
+                  <div class="run-menu-field">
+                    <label class="run-menu-label" for="run-workflow-kwargs">kwargs JSON</label>
+                    <textarea id="run-workflow-kwargs" class="run-menu-input" spellcheck="false">{}</textarea>
+                  </div>
+                  <div id="run-workflow-menu-error" class="run-menu-error hidden"></div>
+                </div>
+              </div>
+            </div>
           </div>
           <section class="graph-section">
             <div class="section-heading">

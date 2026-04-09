@@ -154,6 +154,81 @@ h2 {
   justify-content: flex-end;
 }
 
+.run-launcher {
+  position: relative;
+}
+
+.split-button {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.split-button .refresh-button {
+  border-radius: 14px 0 0 14px;
+}
+
+.split-button .split-toggle {
+  min-width: 44px;
+  padding-inline: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0 14px 14px 0;
+}
+
+.run-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(360px, calc(100vw - 64px));
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--paper-strong);
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+
+.run-menu-body {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(247, 250, 252, 0.9);
+}
+
+.run-menu-field {
+  display: grid;
+  gap: 6px;
+}
+
+.run-menu-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.run-menu-input {
+  width: 100%;
+  min-height: 92px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(245, 248, 252, 0.9);
+  color: var(--ink);
+  font: 0.82rem/1.45 "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  resize: vertical;
+}
+
+.run-menu-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(216, 107, 107, 0.12);
+  color: #8a2323;
+  font-size: 0.84rem;
+}
+
 .hidden {
   display: none !important;
 }

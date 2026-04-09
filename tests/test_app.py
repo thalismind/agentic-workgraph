@@ -44,6 +44,10 @@ def test_app_exposes_workflow_graph():
     assert "/ui/static/vendor/litegraph.js" in ui.text
     assert "graph-warnings" in ui.text
     assert "run-workflow-button" in ui.text
+    assert "run-workflow-menu-button" in ui.text
+    assert "run-workflow-menu" in ui.text
+    assert "run-workflow-args" in ui.text
+    assert "run-workflow-kwargs" in ui.text
     assert "focus-debugger-button" in ui.text
     assert "restore-layout-button" in ui.text
     assert "ws-status-indicator" in ui.text
@@ -62,6 +66,9 @@ def test_app_exposes_workflow_graph():
     assert "scheduleTraceRefresh" in ui_script.text
     assert "applyEvent" in ui_script.text
     assert "launchWorkflowRun" in ui_script.text
+    assert "launchWorkflowRunFromMenu" in ui_script.text
+    assert "launchWorkflowRunWithPayload" in ui_script.text
+    assert "parseJsonField" in ui_script.text
     assert "setDetailFocus" in ui_script.text
     assert "renderLayoutControls" in ui_script.text
     assert "renderWsStatus" in ui_script.text
