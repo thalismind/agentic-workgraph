@@ -384,18 +384,19 @@ h2 {
   position: relative;
   min-height: 280px;
   border-radius: 18px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(30, 136, 229, 0.18);
   background:
-    linear-gradient(180deg, rgba(243, 247, 252, 0.94), rgba(233, 239, 247, 0.94)),
-    radial-gradient(circle at top, rgba(30, 136, 229, 0.12), transparent 50%);
+    linear-gradient(180deg, rgba(232, 239, 248, 0.98), rgba(220, 230, 241, 0.98)),
+    radial-gradient(circle at top, rgba(30, 136, 229, 0.18), transparent 55%);
   overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
 }
 
 .graph-canvas-surface {
   display: block;
   width: 100%;
   min-height: 280px;
-  height: 280px;
+  height: 320px;
 }
 
 .graph-canvas-empty {

@@ -48,7 +48,7 @@ function saveCurrentPositions() {
 function statusTheme(status, streaming) {
   if (status === "failed") {
     return {
-      color: "#d86b6b",
+      color: "#c75a5a",
       bgcolor: "#fdecec",
       boxcolor: "#c14c4c",
       text: "#3d1111",
@@ -57,7 +57,7 @@ function statusTheme(status, streaming) {
   }
   if (status === "completed") {
     return {
-      color: "#1e88e5",
+      color: "#1565c0",
       bgcolor: "#e8f3ff",
       boxcolor: "#1565c0",
       text: "#12283f",
@@ -66,7 +66,7 @@ function statusTheme(status, streaming) {
   }
   if (status === "running" || streaming) {
     return {
-      color: "#f2a93b",
+      color: "#c48717",
       bgcolor: "#fff5df",
       boxcolor: "#d18e17",
       text: "#402d11",
@@ -74,7 +74,7 @@ function statusTheme(status, streaming) {
     };
   }
   return {
-    color: "#94a3b8",
+    color: "#6f8299",
     bgcolor: "#eef2f7",
     boxcolor: "#7b8ca3",
     text: "#1c232d",
@@ -119,6 +119,14 @@ function ensureLiteGraphRegistration() {
   const api = liteGraphApi();
   if (!api || liteGraphRegistered) return api;
   const { LiteGraph } = api;
+  LiteGraph.NODE_TITLE_COLOR = "#344456";
+  LiteGraph.NODE_SELECTED_TITLE_COLOR = "#0d47a1";
+  LiteGraph.NODE_TEXT_COLOR = "#1c232d";
+  LiteGraph.NODE_SUBTEXT_COLOR = "#566575";
+  LiteGraph.NODE_BOX_OUTLINE_COLOR = "#1e88e5";
+  LiteGraph.LINK_COLOR = "#607d9a";
+  LiteGraph.EVENT_LINK_COLOR = "#d18e17";
+  LiteGraph.CONNECTING_LINK_COLOR = "#1e88e5";
 
   function WorkgraphRuntimeNode() {
     this.size = [220, 106];
@@ -213,7 +221,7 @@ function ensureCanvas(onSelectNode) {
     const canvas = $("graph-canvas-surface");
     liteGraphCanvas = new LGraphCanvas(canvas, liteGraphGraph, { skip_rendering: false, autoresize: false });
     liteGraphCanvas.background_image = null;
-    liteGraphCanvas.clear_background_color = "#e6edf5";
+    liteGraphCanvas.clear_background_color = "#d7e2ee";
     liteGraphCanvas.render_shadows = false;
     liteGraphCanvas.show_info = false;
     liteGraphCanvas.allow_dragcanvas = true;
@@ -221,6 +229,21 @@ function ensureCanvas(onSelectNode) {
     liteGraphCanvas.allow_searchbox = false;
     liteGraphCanvas.allow_reconnect_links = false;
     liteGraphCanvas.multi_select = false;
+    liteGraphCanvas.default_link_color = "#607d9a";
+    liteGraphCanvas.default_connection_color = {
+      input_off: "#90a4ba",
+      input_on: "#1e88e5",
+      output_off: "#90a4ba",
+      output_on: "#1e88e5",
+    };
+    liteGraphCanvas.default_connection_color_byType = {
+      "": "#607d9a",
+      "-1": "#d18e17",
+    };
+    liteGraphCanvas.default_connection_color_byTypeOff = {
+      "": "#90a4ba",
+      "-1": "#d7a85d",
+    };
     liteGraphCanvas.onNodeSelected = (node) => {
       const instanceId = node?.properties?.instanceId;
       if (instanceId && instanceId !== state.selectedNodeId) {
@@ -337,6 +360,8 @@ export function renderGraph({ onSelectNode }) {
     graphNode.color = graphNode.properties.theme.color;
     graphNode.bgcolor = graphNode.properties.theme.bgcolor;
     graphNode.boxcolor = graphNode.properties.theme.boxcolor;
+    graphNode.title_text_color = graphNode.properties.selected ? "#ffffff" : "#162230";
+    graphNode.textcolor = graphNode.properties.theme.text;
     graphNode.addOutput("", "");
     for (const _dependency of nodeData.depends_on) {
       graphNode.addInput("", "");
@@ -368,8 +393,9 @@ export function renderGraph({ onSelectNode }) {
 
   setGraphVisibility(true);
   resizeCanvas();
-  liteGraphCanvas.ds.scale = previousScale;
-  liteGraphCanvas.ds.offset = previousOffset;
+  const hasStoredPositions = savedPositions.size > 0;
+  liteGraphCanvas.ds.scale = hasStoredPositions ? previousScale : 1;
+  liteGraphCanvas.ds.offset = hasStoredPositions ? previousOffset : [12, 18];
   liteGraphCanvas.setDirty(true, true);
   container.classList.remove("empty-state");
 }
