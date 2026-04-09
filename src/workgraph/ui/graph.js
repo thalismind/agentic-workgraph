@@ -358,7 +358,6 @@ export function renderGraph({ onSelectNode }) {
     const defaults = layout.positions.get(nodeData.instance_id) ?? { x: 32, y: 32 };
     const stored = savedPositions.get(nodeData.instance_id);
     graphNode.pos = stored ? [...stored] : [defaults.x, defaults.y];
-    graphNode.size = [220, 118];
     graphNode.title = formatNodeLabel(nodeData.node_id, 28).text;
     graphNode.properties = buildNodeProperties(nodeData);
     graphNode.color = graphNode.properties.theme.color;
@@ -373,6 +372,7 @@ export function renderGraph({ onSelectNode }) {
     if (nodeData.loop_iterations && nodeData.loop_iterations > 1) {
       graphNode.addInput("loop", "");
     }
+    graphNode.setSize([220, Math.max(graphNode.size[1], 118)]);
     liteGraphGraph.add(graphNode);
     nodeMap.set(nodeData.instance_id, graphNode);
   }
