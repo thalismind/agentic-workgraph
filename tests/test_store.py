@@ -86,7 +86,7 @@ class FakeRedis:
 
 
 @node(id="redis_llm")
-async def redis_llm(value: str, ctx):
+async def redis_llm(ctx, value: str):
     return await ctx.llm(prompt=f"value {value}")
 
 

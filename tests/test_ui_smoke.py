@@ -14,7 +14,7 @@ from workgraph import create_app, node, workflow
 
 
 @node(id="hello")
-async def hello(name: str, ctx):
+async def hello(ctx, name: str):
     return f"hello {name}"
 
 

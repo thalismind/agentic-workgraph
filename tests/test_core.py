@@ -21,17 +21,17 @@ class Summary(BaseModel):
 
 
 @node(id="fetch")
-async def fetch(seed: str, ctx):
+async def fetch(ctx, seed: str):
     return [f"{seed}-a", f"{seed}-bb"]
 
 
 @node(id="summarize", output_schema=Summary, concurrency=2)
-async def summarize(text: str, ctx):
+async def summarize(ctx, text: str):
     return {"text": text.upper(), "size": len(text)}
 
 
 @node(id="synthesize")
-async def synthesize(summary: Summary, ctx):
+async def synthesize(ctx, summary: Summary):
     return f"{summary.text}:{summary.size}"
 
 
@@ -74,12 +74,12 @@ async def test_resume_skips_completed_nodes():
     state = {"fetch_calls": 0, "render_calls": 0, "fail": True}
 
     @node(id="fetch_resume")
-    async def fetch_resume(seed: str, ctx):
+    async def fetch_resume(ctx, seed: str):
         state["fetch_calls"] += 1
         return [seed, f"{seed}!"]
 
     @node(id="render_resume")
-    async def render_resume(text: str, ctx):
+    async def render_resume(ctx, text: str):
         state["render_calls"] += 1
         if state["fail"]:
             raise RuntimeError("boom")
@@ -112,7 +112,7 @@ async def test_version_listing_and_resume_mismatch():
     executor = Executor(store=store)
 
     @node(id="stable_node")
-    async def stable_node(value: str, ctx):
+    async def stable_node(ctx, value: str):
         return value
 
     @workflow(name="versioned")
@@ -141,7 +141,7 @@ async def test_version_listing_and_resume_mismatch():
 
 
 @node(id="progress_node")
-async def progress_node(value: str, ctx):
+async def progress_node(ctx, value: str):
     async with ctx.progress(desc="working") as progress:
         await progress.update(0.25)
         await progress.update(0.75)
@@ -172,17 +172,17 @@ async def test_progress_and_timing_are_recorded():
 
 
 @node(id="branch_source")
-async def branch_source(value: str, ctx):
+async def branch_source(ctx, value: str):
     return value
 
 
 @node(id="branch_true")
-async def branch_true(value: str, ctx):
+async def branch_true(ctx, value: str):
     return f"true:{value}"
 
 
 @node(id="branch_false")
-async def branch_false(value: str, ctx):
+async def branch_false(ctx, value: str):
     return f"false:{value}"
 
 
@@ -223,7 +223,7 @@ async def test_trace_branch_modes_record_warnings():
 
 
 @node(id="looped")
-async def looped(value: str, ctx):
+async def looped(ctx, value: str):
     return value
 
 

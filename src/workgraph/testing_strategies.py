@@ -28,7 +28,7 @@ class GeneratedWorkflowGraph:
         for index in range(self.size):
 
             @node(id=f"generated_{index}")
-            async def generated_step(value: str, ctx, step_index=index):
+            async def generated_step(ctx, value: str, step_index=index):
                 return f"{value}|n{step_index}"
 
             node_wrappers.append(generated_step)

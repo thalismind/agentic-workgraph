@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from .context import Context, Scratchpad
-from .core import Executor, trace_workflow, workflow
+from .core import Executor, _item_param_name, trace_workflow, workflow
 from .models import NodeError, StreamEnvelope
 from .store import InMemoryStore
 
@@ -242,7 +242,7 @@ async def run_test(workflow, *args: Any, llm: MockLLM | None = None, on_event=No
 
 async def run_test_node(node_callable, *, items: list[Any], llm: MockLLM | None = None):
     node_def = getattr(node_callable, "_node_def")
-    item_param = next(iter(node_def.signature.parameters))
+    item_param = _item_param_name(node_def.signature)
 
     @workflow(name=f"test-{node_def.node_id}")
     def node_workflow():

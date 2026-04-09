@@ -17,7 +17,7 @@ Code-first agentic workflow graphs for Python, with a read-only debugger UI, str
 - OpenTelemetry spans and trace inspection APIs
 - embedded `/ui` history and debugger surface
 
-The full design target lives in [`spec.md`](/workspace/data/coding/projects/agentic-workgraph/spec.md).
+The full design target lives in [`spec.md`](spec.md).
 
 ## Install
 
@@ -29,7 +29,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
 ```
 
-Runtime dependencies are documented in [`pyproject.toml`](/workspace/data/coding/projects/agentic-workgraph/pyproject.toml), including:
+Runtime dependencies are documented in [`pyproject.toml`](pyproject.toml), including:
 
 - `fastapi`
 - `pydantic`
@@ -57,13 +57,13 @@ Then open:
 - API docs surface: `http://127.0.0.1:8081/docs`
 - Embedded debugger UI: `http://127.0.0.1:8081/ui`
 
-The demo app in [`demo_app.py`](/workspace/data/coding/projects/agentic-workgraph/demo_app.py) includes:
+The demo app in [`demo_app.py`](demo_app.py) includes:
 
 - `hello-flow`: the smallest end-to-end workflow
 - `research-demo`: fan-out summaries, progress updates, stream playback, and traceable runs
 - `example-iterative-refinement`: loop modeling in the embedded UI
 
-The example library in [`examples/README.md`](/workspace/data/coding/projects/agentic-workgraph/examples/README.md) adds a broader set of runnable workflows for common agentic patterns.
+The example library in [`examples/README.md`](examples/README.md) adds a broader set of runnable workflows for common agentic patterns.
 
 The embedded UI also supports launching a fresh run directly from the selected workflow with the `Run Workflow` button.
 
@@ -76,7 +76,7 @@ from workgraph import node, workflow
 
 
 @node(id="hello")
-async def hello(name: str, ctx):
+async def hello(ctx, name: str):
     return f"hello {name}"
 
 
@@ -89,20 +89,20 @@ Node functions are scalar. The runtime handles list-shaped execution, concurrenc
 
 ## Project Layout
 
-- [`src/workgraph`](/workspace/data/coding/projects/agentic-workgraph/src/workgraph): runtime, API, storage, tracing, testing helpers
-- [`src/workgraph/ui`](/workspace/data/coding/projects/agentic-workgraph/src/workgraph/ui): embedded static debugger UI
-- [`examples`](/workspace/data/coding/projects/agentic-workgraph/examples): runnable example workflows and example app
-- [`docs`](/workspace/data/coding/projects/agentic-workgraph/docs): agentic pattern documentation and example library notes
-- [`tests`](/workspace/data/coding/projects/agentic-workgraph/tests): smoke and API coverage
-- [`demo_app.py`](/workspace/data/coding/projects/agentic-workgraph/demo_app.py): runnable demo workflows
-- [`spec.md`](/workspace/data/coding/projects/agentic-workgraph/spec.md): design target for v1
+- [`src/workgraph`](src/workgraph): runtime, API, storage, tracing, testing helpers
+- [`src/workgraph/ui`](src/workgraph/ui): embedded static debugger UI
+- [`examples`](examples): runnable example workflows and example app
+- [`docs`](docs): agentic pattern documentation and example library notes
+- [`tests`](tests): smoke and API coverage
+- [`demo_app.py`](demo_app.py): runnable demo workflows
+- [`spec.md`](spec.md): design target for v1
 
 ## Documentation
 
-- [`docs/workflow-authoring.md`](/workspace/data/coding/projects/agentic-workgraph/docs/workflow-authoring.md): how to design, register, test, and verify new workflows
-- [`docs/downstream-integration.md`](/workspace/data/coding/projects/agentic-workgraph/docs/downstream-integration.md): how to embed project-local workflow packages like Thalis with shared app wiring, fixtures, prompts, and deployment
-- [`docs/example-library.md`](/workspace/data/coding/projects/agentic-workgraph/docs/example-library.md): what each example workflow demonstrates
-- [`docs/agentic-patterns.md`](/workspace/data/coding/projects/agentic-workgraph/docs/agentic-patterns.md): guidance on pipeline, fan-out, branching, loops, scratchpads, and recovery
+- [`docs/workflow-authoring.md`](docs/workflow-authoring.md): how to design, register, test, and verify new workflows
+- [`docs/downstream-integration.md`](docs/downstream-integration.md): how to embed project-local workflow packages with shared app wiring, fixtures, prompts, and deployment
+- [`docs/example-library.md`](docs/example-library.md): what each example workflow demonstrates
+- [`docs/agentic-patterns.md`](docs/agentic-patterns.md): guidance on pipeline, fan-out, branching, loops, scratchpads, and recovery
 
 ## Example Library
 

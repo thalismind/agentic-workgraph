@@ -13,7 +13,6 @@ from .models import StreamEnvelope
 _DEFAULT_LOCAL_BASE_URL = "http://localhost:11434"
 _DEFAULT_CLOUD_BASE_URL = "https://ollama.com"
 _DOTENV_PATH = Path.home() / ".env"
-_AUTH_JSON_PATH = Path.home() / ".pi" / "agent" / "auth.json"
 _GENERATE_FIELDS = {
     "context",
     "format",
@@ -107,22 +106,6 @@ def _load_dotenv_key(env_var: str) -> str | None:
     return None
 
 
-def _load_auth_json_key(*names: str) -> str | None:
-    if not _AUTH_JSON_PATH.exists():
-        return None
-    try:
-        data = json.loads(_AUTH_JSON_PATH.read_text())
-    except Exception:  # noqa: BLE001
-        return None
-    for name in names:
-        entry = data.get(name, {})
-        if isinstance(entry, dict):
-            key = entry.get("key")
-            if key:
-                return str(key)
-    return None
-
-
 def _resolve_cloud_api_key(api_key: str | None) -> str | None:
     if api_key:
         return api_key
@@ -134,7 +117,7 @@ def _resolve_cloud_api_key(api_key: str | None) -> str | None:
         value = _load_dotenv_key(env_var)
         if value:
             return value
-    return _load_auth_json_key("ollama-cloud", "ollama_cloud", "ollama")
+    return None
 
 
 def _generate(config: OllamaConfig, *, prompt: str, stream: bool, model: str, kwargs: dict[str, Any]) -> str | StreamEnvelope:
@@ -225,7 +208,7 @@ def create_ollama_cloud_llm(
     resolved_api_key = _resolve_cloud_api_key(api_key)
     if not resolved_api_key:
         raise RuntimeError(
-            "Ollama Cloud API key not found (checked OLLAMA_API_KEY, OLLAMA_CLOUD_API_KEY, ~/.env, ~/.pi/agent/auth.json)"
+            "Ollama Cloud API key not found (checked OLLAMA_API_KEY, OLLAMA_CLOUD_API_KEY, ~/.env)"
         )
     return create_ollama_llm(
         base_url=base_url,

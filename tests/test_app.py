@@ -23,7 +23,7 @@ def wait_for_run_status(client: TestClient, run_id: str, expected: str, timeout:
 
 
 @node(id="hello")
-async def hello(name: str, ctx):
+async def hello(ctx, name: str):
     return f"hello {name}"
 
 
@@ -163,7 +163,7 @@ def test_app_exposes_workflow_graph():
 
 
 @node(id="slow_hello")
-async def slow_hello(name: str, ctx):
+async def slow_hello(ctx, name: str):
     await asyncio.sleep(0.01)
     return f"slow hello {name}"
 
@@ -174,7 +174,7 @@ def slow_flow():
 
 
 @node(id="stream_hello")
-async def stream_hello(name: str, ctx):
+async def stream_hello(ctx, name: str):
     return await ctx.llm(prompt=f"hello {name}")
 
 
@@ -184,7 +184,7 @@ def stream_flow():
 
 
 @node(id="select_greeting")
-async def select_greeting(name: str, ctx):
+async def select_greeting(ctx, name: str):
     return f"hello {name}"
 
 
@@ -300,7 +300,7 @@ def test_run_artifact_reads_manifest(tmp_path):
     manifest_path.write_text('{"next_inputs":{"selector":"example.json","downstream_graph":"next-graph"}}')
 
     @node(id="artifact_node")
-    async def artifact_node(value: str, ctx):
+    async def artifact_node(ctx, value: str):
         return {
             "graph_name": "demo-graph",
             "run_name": value,
@@ -361,12 +361,12 @@ def test_resume_endpoint_reuses_checkpointed_nodes():
     state = {"fetch_calls": 0, "render_calls": 0, "fail": True}
 
     @node(id="resume_fetch_api")
-    async def resume_fetch_api(seed: str, ctx):
+    async def resume_fetch_api(ctx, seed: str):
         state["fetch_calls"] += 1
         return [seed, f"{seed}!"]
 
     @node(id="resume_render_api")
-    async def resume_render_api(text: str, ctx):
+    async def resume_render_api(ctx, text: str):
         state["render_calls"] += 1
         if state["fail"]:
             raise RuntimeError("boom")

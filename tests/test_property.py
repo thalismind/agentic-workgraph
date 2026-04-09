@@ -34,7 +34,7 @@ def test_concurrency_bound_is_respected(items, configured):
     max_active = 0
 
     @node(id="tracked_property", concurrency=concurrency)
-    async def tracked_property(value: int, ctx):
+    async def tracked_property(ctx, value: int):
         nonlocal active, max_active
         active += 1
         max_active = max(max_active, active)

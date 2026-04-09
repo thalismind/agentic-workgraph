@@ -87,7 +87,7 @@ class SummaryOutput(BaseModel):
     on_validation_fail="retry",        # applies to item-level retries
     concurrency=10,                    # max parallel items within this node
 )
-async def summarize(text: str, ctx: Context) -> SummaryOutput:
+async def summarize(ctx: Context, text: str) -> SummaryOutput:
     """Process a single item. The framework calls this once per input list element."""
     result = await ctx.llm(
         prompt=f"Summarize: {text}",
@@ -120,7 +120,7 @@ No explicit `parallel()` call needed — the fan-out is implicit in the list len
 
 ```python
 @node(id="scrape_pages")
-async def scrape_pages(url: str, ctx: Context) -> Page:
+async def scrape_pages(ctx: Context, url: str) -> Page:
     # ctx.progress is a tqdm-compatible wrapper that also emits
     # WebSocket counter updates to the graph UI
     async with ctx.progress(desc="Scraping") as pbar:
@@ -225,7 +225,7 @@ def research_pipeline():
 
 ```python
 @node(id="refine", concurrency=1)
-async def refine(draft: str, ctx: Context) -> str:
+async def refine(ctx: Context, draft: str) -> str:
     return await ctx.llm(prompt=f"Improve: {draft}")
 ```
 
@@ -647,7 +647,7 @@ For multi-agent patterns where agents need loose coupling, the scratchpad provid
 
 ```python
 @node(id="researcher")
-async def researcher(topic: str, ctx: Context):
+async def researcher(ctx: Context, topic: str):
     findings = await ctx.llm(prompt=f"Research {topic}")
     await ctx.scratchpad.set("findings", findings)
     return findings
@@ -896,7 +896,7 @@ Nodes can stream their LLM output to the UI in real time, allowing observers to 
 
 ```python
 @node(id="reason")
-async def reason(question: str, ctx: Context) -> ReasoningOutput:
+async def reason(ctx: Context, question: str) -> ReasoningOutput:
     result = await ctx.llm(
         prompt=f"Think step by step: {question}",
         response_model=ReasoningOutput,
@@ -1289,7 +1289,7 @@ async def test_concurrency_bound_respected(items):
     concurrency_log = []
 
     @node(id="tracked", concurrency=3)
-    async def tracked(x: int, ctx: Context) -> int:
+    async def tracked(ctx: Context, x: int) -> int:
         concurrency_log.append(("start", ctx.item_index))
         await asyncio.sleep(0.01)
         concurrency_log.append(("end", ctx.item_index))

@@ -43,7 +43,7 @@ class WeatherCapture(BaseModel):
     screenshot_bytes: int
 
 
-async def _count_up_stage(stage_name: str, previous: str, ctx) -> str:
+async def _count_up_stage(ctx, stage_name: str, previous: str) -> str:
     async with ctx.progress(desc=f"{stage_name} counting to 10") as progress:
         for value in range(11):
             await progress.update(value / 10)
@@ -53,7 +53,7 @@ async def _count_up_stage(stage_name: str, previous: str, ctx) -> str:
 
 
 @node(id="hello")
-async def hello(name: str, ctx):
+async def hello(ctx, name: str):
     return f"hello {name}"
 
 
@@ -63,18 +63,18 @@ def hello_flow():
 
 
 @node(id="count_stage_one")
-async def count_stage_one(seed: str, ctx):
-    return await _count_up_stage("stage one", seed, ctx)
+async def count_stage_one(ctx, seed: str):
+    return await _count_up_stage(ctx, "stage one", seed)
 
 
 @node(id="count_stage_two")
-async def count_stage_two(previous: str, ctx):
-    return await _count_up_stage("stage two", previous, ctx)
+async def count_stage_two(ctx, previous: str):
+    return await _count_up_stage(ctx, "stage two", previous)
 
 
 @node(id="count_stage_three")
-async def count_stage_three(previous: str, ctx):
-    return await _count_up_stage("stage three", previous, ctx)
+async def count_stage_three(ctx, previous: str):
+    return await _count_up_stage(ctx, "stage three", previous)
 
 
 @workflow(name="example-serial-progress")
@@ -85,17 +85,17 @@ def serial_progress():
 
 
 @node(id="fetch_topics")
-async def fetch_topics(seed: str, ctx):
+async def fetch_topics(ctx, seed: str):
     return [f"{seed} orchestration", f"{seed} tracing", f"{seed} recovery"]
 
 
 @node(id="summarize_topic", output_schema=Summary, concurrency=2)
-async def summarize_topic(topic: str, ctx):
+async def summarize_topic(ctx, topic: str):
     return await ctx.llm(prompt=f"Summarize {topic}", response_model=Summary, stream=True)
 
 
 @node(id="synthesize_brief")
-async def synthesize_brief(summary: Summary, ctx):
+async def synthesize_brief(ctx, summary: Summary):
     return f"{summary.summary} ({summary.confidence:.2f})"
 
 
@@ -107,17 +107,17 @@ def fanout_research():
 
 
 @node(id="draft_answer")
-async def draft_answer(question: str, ctx):
+async def draft_answer(ctx, question: str):
     return f"Draft answer for: {question}"
 
 
 @node(id="review_answer", output_schema=ReviewDecision)
-async def review_answer(answer: str, ctx):
+async def review_answer(ctx, answer: str):
     return await ctx.llm(prompt=f"Review {answer}", response_model=ReviewDecision, stream=False)
 
 
 @node(id="revise_answer")
-async def revise_answer(answer: str, ctx):
+async def revise_answer(ctx, answer: str):
     return f"{answer} (revised)"
 
 
@@ -131,12 +131,12 @@ def conditional_review():
 
 
 @node(id="seed_draft")
-async def seed_draft(topic: str, ctx):
+async def seed_draft(ctx, topic: str):
     return f"Initial draft about {topic}"
 
 
 @node(id="refine_draft")
-async def refine_draft(draft: str, ctx):
+async def refine_draft(ctx, draft: str):
     async with ctx.progress(desc="refining") as progress:
         await progress.update(1.0)
     return f"{draft} -> refined"
@@ -151,21 +151,21 @@ def iterative_refinement():
 
 
 @node(id="research_findings")
-async def research_findings(topic: str, ctx):
+async def research_findings(ctx, topic: str):
     findings = [f"{topic} needs observability", f"{topic} benefits from checkpoints"]
     await ctx.scratchpad.set("findings", findings)
     return findings
 
 
 @node(id="critic_findings")
-async def critic_findings(findings: str, ctx):
+async def critic_findings(ctx, findings: str):
     critique = f"Critique: {findings}"
     await ctx.scratchpad.set("critique", critique)
     return critique
 
 
 @node(id="final_recommendation")
-async def final_recommendation(critique: str, ctx):
+async def final_recommendation(ctx, critique: str):
     findings = await ctx.scratchpad.get("findings")
     return f"{critique} | findings={findings}"
 
@@ -183,7 +183,7 @@ def _fetch_json(url: str) -> dict:
 
 
 @node(id="fetch_live_weather", output_schema=WeatherObservation)
-async def fetch_live_weather(location: str, ctx):
+async def fetch_live_weather(ctx, location: str):
     encoded_location = quote_plus(location)
 
     def get_weather() -> WeatherObservation:
@@ -215,7 +215,7 @@ async def fetch_live_weather(location: str, ctx):
 
 
 @node(id="capture_weather_site", output_schema=WeatherCapture)
-async def capture_weather_site(observation: WeatherObservation, ctx, output_dir: str = "/tmp/agentic-workgraph-weather"):
+async def capture_weather_site(ctx, observation: WeatherObservation, output_dir: str = "/tmp/agentic-workgraph-weather"):
     def capture() -> WeatherCapture:
         base_dir = Path(output_dir)
         base_dir.mkdir(parents=True, exist_ok=True)
@@ -241,7 +241,7 @@ async def capture_weather_site(observation: WeatherObservation, ctx, output_dir:
 
 
 @node(id="summarize_weather_capture")
-async def summarize_weather_capture(capture: WeatherCapture, ctx):
+async def summarize_weather_capture(ctx, capture: WeatherCapture):
     return (
         f"{capture.location}: {capture.temperature_c:.1f}C "
         f"| screenshot={capture.screenshot_path} "

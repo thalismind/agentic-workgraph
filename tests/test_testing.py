@@ -10,7 +10,7 @@ from workgraph.testing import MockLLM, record_trace, replay_trace, run_test_node
 
 
 @node(id="sample_echo")
-async def sample_echo(value: str, ctx):
+async def sample_echo(ctx, value: str):
     return await ctx.llm(prompt=f"echo {value}")
 
 
@@ -20,7 +20,7 @@ def sample_flow():
 
 
 @node(id="sample_double")
-async def sample_double(value: int, ctx):
+async def sample_double(ctx, value: int):
     return value * 2
 
 

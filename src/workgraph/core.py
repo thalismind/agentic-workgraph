@@ -39,6 +39,7 @@ from .tracing import Telemetry
 
 _TRACE_STATE: ContextVar["TraceState | None"] = ContextVar("workgraph_trace_state", default=None)
 _DEFAULT_STORE = InMemoryStore()
+_LEADING_NON_ITEM_PARAMS = {"self", "cls", "ctx"}
 
 
 def _schema_name(schema: Any) -> str | None:
@@ -59,6 +60,26 @@ def _duration_ms(started_at: datetime | None, finished_at: datetime | None) -> i
     if started_at is None or finished_at is None:
         return None
     return int((finished_at - started_at).total_seconds() * 1000)
+
+
+def _validate_ctx_position(signature: inspect.Signature, node_id: str) -> None:
+    names = list(signature.parameters)
+    if "ctx" not in names:
+        return
+    expected_index = 1 if names and names[0] in {"self", "cls"} else 0
+    actual_index = names.index("ctx")
+    if actual_index != expected_index:
+        raise TypeError(
+            f"Node '{node_id}' must declare 'ctx' as the first parameter"
+            f"{' after self/cls' if expected_index == 1 else ''}."
+        )
+
+
+def _item_param_name(signature: inspect.Signature) -> str:
+    for parameter in signature.parameters.values():
+        if parameter.name not in _LEADING_NON_ITEM_PARAMS:
+            return parameter.name
+    raise TypeError("Node functions must declare at least one non-context input parameter.")
 
 
 def _event(event: str, run_id: str, **payload: Any) -> dict[str, Any]:
@@ -95,6 +116,7 @@ class NodeDefinition:
 
     def __post_init__(self) -> None:
         self.signature = inspect.signature(self.func)
+        _validate_ctx_position(self.signature, self.node_id)
 
     def bind(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         bound = self.signature.bind_partial(*args, **kwargs)
@@ -545,7 +567,8 @@ async def _run_one_item(
                         report_progress=report_progress,
                         tracer=tracer,
                     )
-                    call = node_def.func(item, ctx=ctx, **extra_args)
+                    item_param = _item_param_name(node_def.signature)
+                    call = node_def.func(ctx=ctx, **{item_param: item}, **extra_args)
                     result = await asyncio.wait_for(call, timeout=node_def.timeout) if node_def.timeout else await call
                     validated = await _validate_output(node_def, result)
                     item_record.output = validated
@@ -713,7 +736,7 @@ async def _run_node(
     tracer,
 ) -> list[Any]:
     node_def = call.node_def
-    item_param = next(iter(node_def.signature.parameters))
+    item_param = _item_param_name(node_def.signature)
     items = materialized_args.pop(item_param)
     if not isinstance(items, list):
         raise TypeError(f"Node {node_def.node_id} expected list input for '{item_param}'")
@@ -989,7 +1012,7 @@ class Executor:
                     if call.iteration_index == 0:
                         state.errors = []
                     materialized = {key: _materialize_arg(value, outputs) for key, value in call.bound_args.items()}
-                    item_param = next(iter(call.node_def.signature.parameters))
+                    item_param = _item_param_name(call.node_def.signature)
                     items = materialized[item_param]
                     state.counters.total += len(items)
                     state.counters.pending += len(items)

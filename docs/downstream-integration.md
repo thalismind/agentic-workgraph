@@ -1,6 +1,6 @@
 # Downstream Integration Guide
 
-This guide is for teams integrating `agentic-workgraph` into a real project such as Thalis.
+This guide is for teams integrating `agentic-workgraph` into a real project.
 
 The workflow-authoring guide explains how to write nodes and workflows. This document explains how to embed them into a project with real prompts, real fixtures, real deployment, and a clean package layout.
 
@@ -15,7 +15,7 @@ A downstream integration should end up with:
 - app-level LLM wiring
 - a debugger UI that reflects the project’s real workflows
 
-The Thalis workflow package is the current reference implementation.
+A downstream workflow package should be treated as the reference implementation for its own project.
 
 ## Recommended Layout
 
@@ -24,7 +24,7 @@ Use a dedicated package or directory for workflows inside the downstream repo.
 Example:
 
 ```text
-data-thalis/
+my-project/
   workflows/
     __init__.py
     app.py
@@ -78,14 +78,14 @@ Use one registry module as the source of truth for exposed workflows.
 Example:
 
 ```python
-from .content_prep import thalis_content_prep
-from .publish_prep import thalis_publish_prep
-from .release_prep import thalis_release_prep
+from .content_prep import content_prep
+from .publish_prep import publish_prep
+from .release_prep import release_prep
 
 WORKFLOWS = [
-    thalis_content_prep,
-    thalis_release_prep,
-    thalis_publish_prep,
+    content_prep,
+    release_prep,
+    publish_prep,
 ]
 ```
 
@@ -108,7 +108,7 @@ from .registry import WORKFLOWS
 
 app = create_app(
     workflows=WORKFLOWS,
-    llm_callable=create_ollama_cloud_llm(model="kimi-k2.5"),
+    llm_callable=create_ollama_cloud_llm(model="kimi-k2.5:cloud"),
 )
 ```
 
@@ -118,7 +118,7 @@ Why this pattern matters:
 - model wiring stays consistent
 - deployment is one process, not many one-off launch scripts
 
-For Thalis, this is the preferred shape for running on `8081`.
+This is a good default shape for running on `8081`.
 
 ## Prompt Files
 
@@ -137,7 +137,7 @@ Benefits:
 - easier reuse across workflows
 - cleaner Python modules
 
-If a workflow invokes an external agent harness, pass the prompt in from a tracked file. The `thalis-pi-identity` workflow uses `data-thalis/system-prompt.md` this way.
+If a workflow invokes an external agent harness, pass the prompt in from a tracked file. For example, keep a prompt like `workflows/system-prompt.md` in the repo and feed that to the `pi` harness from the workflow node.
 
 ## Fixture Strategy
 
@@ -196,7 +196,7 @@ Current recommended baseline:
 ```python
 from workgraph import create_ollama_cloud_llm
 
-llm_callable = create_ollama_cloud_llm(model="kimi-k2.5")
+llm_callable = create_ollama_cloud_llm(model="kimi-k2.5:cloud")
 ```
 
 Use Ollama local when:
@@ -232,8 +232,8 @@ A downstream app should be launchable with one Uvicorn command.
 Example:
 
 ```bash
-/workspace/data/coding/projects/agentic-workgraph/.venv/bin/python -m uvicorn \
-  --app-dir /workspace/data/coding/data-thalis/workflows \
+.venv/bin/python -m uvicorn \
+  --app-dir my-project/workflows \
   app:app \
   --host 0.0.0.0 \
   --port 8081
@@ -292,15 +292,15 @@ If you are bringing an older project into `agentic-workgraph`, migrate in slices
 
 Do not start with direct publishing or broad historical compatibility.
 
-## Thalis Reference
+## Example Reference
 
-The current Thalis package demonstrates these patterns:
+A downstream package can demonstrate these patterns:
 
 - curated normalized draft fixtures
 - one shared app entrypoint
 - one registry module
-- real Kimi-backed critique nodes
+- hosted critique nodes wired through the shared app LLM
 - project-local prompt files
 - a workflow that invokes the real `pi` harness and captures its output
 
-That is the model to follow for the next downstream integration unless there is a strong project-specific reason to diverge.
+That is a good model to follow unless there is a strong project-specific reason to diverge.

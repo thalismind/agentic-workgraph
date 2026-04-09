@@ -29,6 +29,7 @@ Follow these rules unless there is a strong reason not to:
 
 - Nodes should be async functions.
 - Nodes should do one thing well.
+- If a node uses `ctx`, declare it as the first parameter, or immediately after `self`/`cls` on methods.
 - Node parameters should be scalar values or structured objects, not pre-batched lists.
 - Let the runtime map over lists. Do not write your own per-item loop unless the loop is the point of the workflow.
 - Use Pydantic models for contract-shaped inputs and outputs.
@@ -49,7 +50,7 @@ class Greeting(BaseModel):
 
 
 @node(id="compose_greeting", output_schema=Greeting)
-async def compose_greeting(name: str, ctx):
+async def compose_greeting(ctx, name: str):
     return Greeting(text=f"hello {name}")
 
 
@@ -86,7 +87,7 @@ If a step needs progress reporting, use `ctx.progress(...)`.
 
 ```python
 @node(id="count_step")
-async def count_step(value: int, ctx):
+async def count_step(ctx, value: int):
     async with ctx.progress(desc="counting") as progress:
         for index in range(10):
             await progress.update((index + 1) / 10, desc=f"step {index + 1}/10")
@@ -140,7 +141,7 @@ Use `ctx.llm(...)` inside a node when the model call is part of the workflow ste
 
 ```python
 @node(id="critique_copy")
-async def critique_copy(draft: str, ctx):
+async def critique_copy(ctx, draft: str):
     review = await ctx.llm(
         prompt=f"Critique this draft and return concise notes:\n\n{draft}"
     )
@@ -161,7 +162,7 @@ from workgraph import create_app, create_ollama_cloud_llm
 
 app = create_app(
     workflows=[my_workflow],
-    llm_callable=create_ollama_cloud_llm(model="kimi-k2.5"),
+    llm_callable=create_ollama_cloud_llm(model="kimi-k2.5:cloud"),
 )
 ```
 
@@ -197,7 +198,7 @@ from .workflows import my_workflow
 app = create_app(workflows=[my_workflow])
 ```
 
-In a larger project, keep a registry module and a shared app entrypoint. That pattern is used in the Thalis workflow package.
+In a larger project, keep a registry module and a shared app entrypoint.
 
 ## Testing
 
@@ -237,9 +238,9 @@ If the workflow has streaming or long-running steps, launch it from the UI at le
 
 In this repo:
 
-- reusable workflow examples: [`examples/workflows.py`](/workspace/data/coding/projects/agentic-workgraph/examples/workflows.py)
-- example app: [`examples/app.py`](/workspace/data/coding/projects/agentic-workgraph/examples/app.py)
-- demo app: [`demo_app.py`](/workspace/data/coding/projects/agentic-workgraph/demo_app.py)
+- reusable workflow examples: [`examples/workflows.py`](../examples/workflows.py)
+- example app: [`examples/app.py`](../examples/app.py)
+- demo app: [`demo_app.py`](../demo_app.py)
 
 In downstream projects:
 

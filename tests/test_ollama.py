@@ -64,7 +64,7 @@ class _OllamaServer:
 
 
 @node(id="ask_ollama")
-async def ask_ollama(topic: str, ctx):
+async def ask_ollama(ctx, topic: str):
     return await ctx.llm(prompt=f"Write a title for {topic}", model="ollama/gemma3")
 
 
