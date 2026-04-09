@@ -1,4 +1,4 @@
-import { $, formatDuration, formatNodeLabel, state } from "./state.js";
+import { $, formatDuration, state } from "./state.js";
 
 const WORKGRAPH_NODE_TYPE = "workgraph/runtime";
 
@@ -49,7 +49,7 @@ function statusTheme(status, streaming) {
   if (status === "failed") {
     return {
       color: "#7d2f39",
-      bgcolor: "#f9eaed",
+      bgcolor: "#f3dfe3",
       boxcolor: "#9d4951",
       text: "#3d1111",
       muted: "#7a3131",
@@ -59,7 +59,7 @@ function statusTheme(status, streaming) {
   if (status === "completed") {
     return {
       color: "#083f34",
-      bgcolor: "#e2f1ec",
+      bgcolor: "#d8ebe4",
       boxcolor: "#0a4a3c",
       text: "#112520",
       muted: "#42635a",
@@ -69,7 +69,7 @@ function statusTheme(status, streaming) {
   if (status === "running" || streaming) {
     return {
       color: "#9b6c11",
-      bgcolor: "#fff5da",
+      bgcolor: "#f7e7b8",
       boxcolor: "#d4a537",
       text: "#402d11",
       muted: "#7d6337",
@@ -78,7 +78,7 @@ function statusTheme(status, streaming) {
   }
   return {
     color: "#31213f",
-    bgcolor: "#efebf5",
+    bgcolor: "#e5deee",
     boxcolor: "#6a5a7d",
     text: "#1d2130",
     muted: "#645d72",
@@ -106,7 +106,7 @@ export function computeGraphLayout(graph) {
   const positions = new Map();
   for (const [level, ids] of lanes.entries()) {
     ids.forEach((id, index) => {
-      positions.set(id, { x: 48 + level * 280, y: 52 + index * 156 });
+      positions.set(id, { x: 48 + level * 280, y: 52 + index * 184 });
     });
   }
 
@@ -115,7 +115,7 @@ export function computeGraphLayout(graph) {
   return {
     positions,
     width: 320 + maxLevel * 280,
-    height: 180 + maxLane * 156,
+    height: 222 + maxLane * 184,
   };
 }
 
@@ -123,8 +123,8 @@ function ensureLiteGraphRegistration() {
   const api = liteGraphApi();
   if (!api || liteGraphRegistered) return api;
   const { LiteGraph } = api;
-  LiteGraph.NODE_TITLE_COLOR = "#f0e6d3";
-  LiteGraph.NODE_SELECTED_TITLE_COLOR = "#f0e6d3";
+  LiteGraph.NODE_TITLE_COLOR = "rgba(0, 0, 0, 0)";
+  LiteGraph.NODE_SELECTED_TITLE_COLOR = "rgba(0, 0, 0, 0)";
   LiteGraph.NODE_TEXT_COLOR = "#16211f";
   LiteGraph.NODE_SUBTEXT_COLOR = "#566460";
   LiteGraph.NODE_BOX_OUTLINE_COLOR = "#00e5b0";
@@ -133,7 +133,7 @@ function ensureLiteGraphRegistration() {
   LiteGraph.CONNECTING_LINK_COLOR = "#00e5b0";
 
   function WorkgraphRuntimeNode() {
-    this.size = [220, 106];
+    this.size = [220, 136];
     this.properties = {
       instanceId: "",
       nodeId: "",
@@ -148,7 +148,50 @@ function ensureLiteGraphRegistration() {
     };
   }
 
-  WorkgraphRuntimeNode.title = "Workgraph";
+  WorkgraphRuntimeNode.title = "";
+  WorkgraphRuntimeNode.prototype.onDrawBackground = function onDrawBackground(ctx) {
+    const properties = this.properties || {};
+    const theme = properties.theme || statusTheme("pending", false);
+    const width = this.size[0];
+    const height = this.size[1];
+    const titleHeight = 32;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(1, 1, width - 2, height - 2, 12);
+    ctx.fillStyle = theme.bgcolor;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.roundRect(1, 1, width - 2, titleHeight, 12);
+    ctx.fillStyle = theme.color;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(10, titleHeight + 0.5);
+    ctx.lineTo(width - 10, titleHeight + 0.5);
+    ctx.strokeStyle = "rgba(26, 26, 26, 0.14)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.roundRect(1, 1, width - 2, height - 2, 12);
+    ctx.strokeStyle = properties.selected ? "#00e5b0" : theme.boxcolor;
+    ctx.lineWidth = properties.selected ? 2.5 : 1.5;
+    ctx.stroke();
+
+    ctx.font = "700 13px system-ui, sans-serif";
+    ctx.fillStyle = theme.titleText;
+    ctx.fillText(properties.fullTitle || "", 14, 21, width - 54);
+
+    if (properties.streaming) {
+      ctx.font = "700 14px system-ui, sans-serif";
+      ctx.fillStyle = theme.titleText;
+      ctx.fillText("...", width - 32, 21, 18);
+    }
+    ctx.restore();
+  };
+
   WorkgraphRuntimeNode.prototype.onDrawForeground = function onDrawForeground(ctx) {
     const properties = this.properties || {};
     const theme = properties.theme || statusTheme("pending", false);
@@ -158,42 +201,41 @@ function ensureLiteGraphRegistration() {
     ctx.save();
     ctx.font = "700 12px system-ui, sans-serif";
     ctx.fillStyle = theme.text;
-    ctx.fillText(properties.metaLine || "", 14, 46, width - 28);
+    ctx.fillText(properties.metaLine || "", 14, 54, width - 28);
 
     ctx.font = "12px system-ui, sans-serif";
     ctx.fillStyle = theme.muted;
-    ctx.fillText(properties.durationLine || "", 14, 64, width - 28);
+    ctx.fillText(properties.durationLine || "", 14, 76, width - 28);
 
     if (properties.loopIterations && properties.loopIterations > 1) {
       ctx.font = "600 11px system-ui, sans-serif";
       ctx.fillStyle = "#8b6722";
-      ctx.fillText(`↺ ${properties.loopIterations}x`, 14, 82, 48);
+      ctx.fillText(`↺ ${properties.loopIterations}x`, 14, 101, 48);
       ctx.beginPath();
       ctx.strokeStyle = "#d4a537";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([5, 4]);
-      ctx.moveTo(42, 76);
-      ctx.bezierCurveTo(4, 46, width - 4, 46, width - 42, 76);
+      ctx.moveTo(42, 94);
+      ctx.bezierCurveTo(4, 62, width - 4, 62, width - 42, 94);
       ctx.stroke();
       ctx.setLineDash([]);
     }
 
     const barX = 118;
-    const barY = 75;
+    const barY = 90;
     const barWidth = width - barX - 16;
-    ctx.fillStyle = "rgba(64, 78, 97, 0.12)";
+    ctx.fillStyle = "rgba(26, 26, 26, 0.14)";
+    ctx.strokeStyle = "rgba(26, 26, 26, 0.24)";
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(barX, barY, barWidth, 9, 4.5);
+    ctx.roundRect(barX, barY, barWidth, 10, 5);
     ctx.fill();
-    ctx.fillStyle = theme.boxcolor;
-    ctx.beginPath();
-    ctx.roundRect(barX, barY, Math.max(4, barWidth * progress), 9, 4.5);
-    ctx.fill();
-
-    if (properties.streaming) {
-      ctx.font = "700 14px system-ui, sans-serif";
-      ctx.fillStyle = "#1a1a1a";
-      ctx.fillText("...", width - 34, 22, 20);
+    ctx.stroke();
+    if (progress > 0) {
+      ctx.fillStyle = theme.boxcolor;
+      ctx.beginPath();
+      ctx.roundRect(barX + 1, barY + 1, Math.max(6, (barWidth - 2) * progress), 8, 4);
+      ctx.fill();
     }
     ctx.restore();
   };
@@ -225,7 +267,7 @@ function ensureCanvas(onSelectNode) {
     const canvas = $("graph-canvas-surface");
     liteGraphCanvas = new LGraphCanvas(canvas, liteGraphGraph, { skip_rendering: false, autoresize: false });
     liteGraphCanvas.background_image = null;
-    liteGraphCanvas.clear_background_color = "#dfe8ea";
+    liteGraphCanvas.clear_background_color = "#edf2f1";
     liteGraphCanvas.render_shadows = false;
     liteGraphCanvas.show_info = false;
     liteGraphCanvas.allow_dragcanvas = true;
@@ -358,14 +400,15 @@ export function renderGraph({ onSelectNode }) {
     const defaults = layout.positions.get(nodeData.instance_id) ?? { x: 32, y: 32 };
     const stored = savedPositions.get(nodeData.instance_id);
     graphNode.pos = stored ? [...stored] : [defaults.x, defaults.y];
-    graphNode.size = [220, 106];
-    graphNode.title = formatNodeLabel(nodeData.node_id, 28).text;
+    graphNode.size = [220, 136];
+    graphNode.title = "";
     graphNode.properties = buildNodeProperties(nodeData);
     graphNode.color = graphNode.properties.theme.color;
     graphNode.bgcolor = graphNode.properties.theme.bgcolor;
     graphNode.boxcolor = graphNode.properties.theme.boxcolor;
     graphNode.title_text_color = graphNode.properties.theme.titleText;
     graphNode.textcolor = graphNode.properties.theme.text;
+    graphNode.strokeStyle = graphNode.properties.theme.boxcolor;
     graphNode.addOutput("", "");
     for (const _dependency of nodeData.depends_on) {
       graphNode.addInput("", "");
