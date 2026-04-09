@@ -39,6 +39,83 @@ function startWsStatusClock() {
   state.wsStatusTimer = setInterval(() => renderWsStatus(), 1000);
 }
 
+const ARTIFACT_HIGHLIGHT_KEYS = [
+  "identified_as",
+  "stdout",
+  "response",
+  "result",
+  "output",
+  "content",
+  "summary",
+  "llm_review",
+];
+
+const ARTIFACT_CONTEXT_KEYS = [
+  "prompt",
+  "input",
+  "inputs",
+  "command",
+  "provider",
+  "model",
+  "system_prompt",
+  "system_prompt_path",
+  "tools",
+];
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function truncateArtifactText(value, limit = 900) {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}\n...`;
+}
+
+function formatArtifactValue(value, limit = 900) {
+  if (typeof value === "string") {
+    return truncateArtifactText(value, limit);
+  }
+  return truncateArtifactText(JSON.stringify(value, null, 2), limit);
+}
+
+function buildArtifactPreview(artifact) {
+  if (!isPlainObject(artifact)) {
+    return {
+      highlights: [],
+      preview: formatArtifactValue(artifact, 1800),
+    };
+  }
+
+  const highlights = [];
+  const previewObject = {};
+
+  for (const key of ARTIFACT_HIGHLIGHT_KEYS) {
+    if (artifact[key] === undefined || artifact[key] === null || artifact[key] === "") continue;
+    highlights.push({
+      label: key.replaceAll("_", " "),
+      value: formatArtifactValue(artifact[key], key === "stdout" ? 1200 : 500),
+    });
+    previewObject[key] = artifact[key];
+  }
+
+  const remainingKeys = Object.keys(artifact).filter(
+    (key) => !(key in previewObject) && !ARTIFACT_CONTEXT_KEYS.includes(key),
+  );
+  for (const key of remainingKeys) {
+    previewObject[key] = artifact[key];
+  }
+
+  const hiddenKeys = Object.keys(artifact).filter((key) => ARTIFACT_CONTEXT_KEYS.includes(key));
+  if (hiddenKeys.length) {
+    previewObject._hidden_context_fields = hiddenKeys;
+  }
+
+  return {
+    highlights,
+    preview: JSON.stringify(previewObject, null, 2),
+  };
+}
+
 function closeLiveSocket() {
   closeSocket();
   state.wsConnected = false;
@@ -309,15 +386,28 @@ function updateRunSummary() {
     renderCollapsedSections();
     return;
   }
-  const preview = JSON.stringify(state.run.final_output[0], null, 2);
+  const artifact = state.run.final_output[0];
+  const { highlights, preview } = buildArtifactPreview(artifact);
   artifactPanel.innerHTML = `
     <strong>Final Artifact</strong>
     <br />
     <span class="muted">Terminal node:</span> ${state.run.final_node_id ?? "unknown"}
+    <div class="artifact-highlights"></div>
     <pre class="artifact-preview"></pre>
   `;
+  const highlightsRoot = artifactPanel.querySelector(".artifact-highlights");
+  for (const highlight of highlights) {
+    const block = document.createElement("div");
+    block.className = "artifact-highlight";
+    block.innerHTML = `
+      <span class="artifact-highlight-label">${highlight.label}</span>
+      <pre class="artifact-highlight-value"></pre>
+    `;
+    block.querySelector(".artifact-highlight-value").textContent = highlight.value;
+    highlightsRoot.append(block);
+  }
   artifactPanel.querySelector(".artifact-preview").textContent =
-    `${preview.slice(0, 1200)}${preview.length > 1200 ? "\n..." : ""}`;
+    `${preview.slice(0, 1800)}${preview.length > 1800 ? "\n..." : ""}`;
   renderCollapsedSections();
 }
 

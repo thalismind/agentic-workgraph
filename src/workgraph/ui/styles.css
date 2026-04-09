@@ -251,6 +251,37 @@ h2 {
   overflow-x: auto;
 }
 
+.artifact-highlights {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.artifact-highlight {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(36, 92, 166, 0.16);
+  background: rgba(227, 235, 247, 0.82);
+}
+
+.artifact-highlight-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #245ca6;
+}
+
+.artifact-highlight-value {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
 .compact {
   gap: 10px;
 }

@@ -68,6 +68,8 @@ def test_app_exposes_workflow_graph():
     assert "startWsStatusClock" in ui_script.text
     assert "toggleSection" in ui_script.text
     assert "renderCollapsedSections" in ui_script.text
+    assert "buildArtifactPreview" in ui_script.text
+    assert "_hidden_context_fields" in ui_script.text
     assert '"hashchange"' in ui_script.text
 
     graph_script = client.get("/ui/static/graph.js")
