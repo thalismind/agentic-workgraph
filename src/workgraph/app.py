@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+import json
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -111,6 +113,30 @@ def create_app(
             )
         return WorkflowVersionsResponse(workflow=name, current_version=current_version, versions=versions)
 
+    @app.get("/api/workflows/{name}/launch-spec")
+    async def get_launch_spec(name: str):
+        workflow = workflow_map.get(name)
+        if workflow is None:
+            raise HTTPException(status_code=404, detail="workflow not found")
+        signature = inspect.signature(workflow.func)
+        params = []
+        for parameter in signature.parameters.values():
+            default = None if parameter.default is inspect._empty else parameter.default
+            annotation = None if parameter.annotation is inspect._empty else str(parameter.annotation)
+            params.append(
+                {
+                    "name": parameter.name,
+                    "kind": parameter.kind.name,
+                    "required": parameter.default is inspect._empty,
+                    "default": default,
+                    "annotation": annotation,
+                }
+            )
+        return {
+            "workflow": name,
+            "params": params,
+        }
+
     @app.get("/api/workflows/{name}/runs", response_model=WorkflowRunsResponse)
     async def list_workflow_runs(name: str, version: str | None = None):
         workflow = workflow_map.get(name)
@@ -153,6 +179,35 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="run not found") from exc
         return run
+
+    @app.get("/api/runs/{run_id}/artifact")
+    async def get_run_artifact(run_id: str):
+        try:
+            run = store.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        artifact = run.final_output[0] if run.final_output else None
+        manifest = None
+        manifest_path = None
+        if isinstance(artifact, dict):
+            manifest_path = artifact.get("manifest_path")
+        elif artifact is not None:
+            manifest_path = getattr(artifact, "manifest_path", None)
+        if isinstance(manifest_path, str) and manifest_path:
+            path = Path(manifest_path)
+            if path.exists():
+                try:
+                    manifest = json.loads(path.read_text())
+                except Exception:  # noqa: BLE001
+                    manifest = None
+        return {
+            "run_id": run.run_id,
+            "workflow": run.workflow,
+            "version": run.version,
+            "status": run.status,
+            "artifact": artifact,
+            "manifest": manifest,
+        }
 
     @app.post("/api/runs/{run_id}/resume", response_model=RunLaunchResponse)
     async def resume_run(run_id: str):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import threading
 import time
 
 from workgraph import node, workflow
@@ -154,3 +155,42 @@ def test_redis_store_pubsub_subscription(monkeypatch):
         store.unsubscribe("pubsub-run", queue_handle)
 
     asyncio.run(exercise())
+
+
+def test_redis_store_unsubscribe_avoids_pubsub_close_race(monkeypatch):
+    fake = FakeRedis()
+    thread_errors: list[BaseException] = []
+
+    class StubbornPubSub(FakePubSub):
+        def get_message(self, timeout: float = 0.0):
+            deadline = time.time() + max(timeout, 0.2)
+            while time.time() < deadline:
+                if self.closed:
+                    raise OSError("pubsub closed")
+                time.sleep(0.01)
+            return None
+
+    class FakeRedisFactory:
+        @staticmethod
+        def from_url(url: str, decode_responses: bool = True):
+            return fake
+
+    def stubborn_pubsub(ignore_subscribe_messages: bool = True):
+        return StubbornPubSub(fake)
+
+    import redis
+
+    monkeypatch.setattr(redis, "Redis", FakeRedisFactory)
+    monkeypatch.setattr(fake, "pubsub", stubborn_pubsub)
+    monkeypatch.setattr(threading, "excepthook", lambda args: thread_errors.append(args.exc_value))
+
+    store = RedisStore("redis://example/0")
+
+    async def exercise() -> None:
+        queue_handle = store.subscribe("pubsub-run")
+        await asyncio.sleep(0.05)
+        store.unsubscribe("pubsub-run", queue_handle)
+        await asyncio.sleep(0.05)
+
+    asyncio.run(exercise())
+    assert thread_errors == []

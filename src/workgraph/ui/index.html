@@ -57,6 +57,15 @@
               </div>
               <div id="run-workflow-menu" class="run-menu hidden">
                 <div class="run-menu-body">
+                  <div id="upstream-launch-helper" class="run-menu-helper hidden">
+                    <div class="run-menu-field">
+                      <label class="run-menu-label" for="upstream-result-select">Use Upstream Result</label>
+                      <select id="upstream-result-select" class="run-menu-select">
+                        <option value="">Choose a recent upstream artifact</option>
+                      </select>
+                    </div>
+                    <p id="upstream-result-hint" class="muted small run-menu-hint"></p>
+                  </div>
                   <div class="run-menu-field">
                     <label class="run-menu-label" for="run-workflow-args">args JSON</label>
                     <textarea id="run-workflow-args" class="run-menu-input" spellcheck="false">[]</textarea>

@@ -23,6 +23,10 @@ export const state = {
   launchingRun: false,
   launchMenuOpen: false,
   launchInputsDirty: false,
+  upstreamOptions: [],
+  upstreamOptionsLoading: false,
+  upstreamOptionsError: "",
+  launchSpec: null,
   applyingHashRoute: false,
   collapsedSections: {
     finalArtifact: false,

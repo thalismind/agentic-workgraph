@@ -196,6 +196,15 @@ h2 {
   background: rgba(247, 250, 252, 0.9);
 }
 
+.run-menu-helper {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(10, 74, 60, 0.12);
+  background: rgba(232, 241, 238, 0.9);
+}
+
 .run-menu-field {
   display: grid;
   gap: 6px;
@@ -218,6 +227,22 @@ h2 {
   color: var(--ink);
   font: 0.82rem/1.45 "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   resize: vertical;
+}
+
+.run-menu-select {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(245, 248, 252, 0.9);
+  color: var(--ink);
+  font: inherit;
+}
+
+.run-menu-hint {
+  margin: 0;
 }
 
 .run-menu-error {

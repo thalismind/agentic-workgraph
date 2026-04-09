@@ -123,6 +123,11 @@ def test_app_exposes_workflow_graph():
         }
     ]
 
+    launch_spec = client.get("/api/workflows/hello-flow/launch-spec")
+    assert launch_spec.status_code == 200
+    assert launch_spec.json()["workflow"] == "hello-flow"
+    assert launch_spec.json()["params"] == []
+
     run = client.post("/api/workflows/hello-flow/runs")
     assert run.status_code == 200
     run_id = run.json()["run_id"]
@@ -149,6 +154,12 @@ def test_app_exposes_workflow_graph():
     errors = client.get(f"/api/runs/{run_id}/errors")
     assert errors.status_code == 200
     assert errors.json() == []
+
+    artifact = client.get(f"/api/runs/{run_id}/artifact")
+    assert artifact.status_code == 200
+    assert artifact.json()["run_id"] == run_id
+    assert artifact.json()["artifact"] == "hello world"
+    assert artifact.json()["manifest"] is None
 
 
 @node(id="slow_hello")
@@ -257,7 +268,6 @@ def test_run_launch_accepts_workflow_kwargs():
 
     response = client.post("/api/workflows/parameter-flow/runs", json={"kwargs": {"name": ["custom"]}})
     assert response.status_code == 200
-
     run_id = response.json()["run_id"]
     payload = wait_for_run_status(client, run_id, "completed")
     assert payload["workflow_kwargs"] == {"name": ["custom"]}
@@ -279,6 +289,43 @@ def test_run_launch_accepts_workflow_kwargs():
     assert positional_item.status_code == 200
     assert positional_item.json()["input"] == "positional"
     assert positional_item.json()["output"] == "hello positional"
+
+    launch_spec = client.get("/api/workflows/parameter-flow/launch-spec")
+    assert launch_spec.status_code == 200
+    assert launch_spec.json()["params"][0]["name"] == "name"
+
+
+def test_run_artifact_reads_manifest(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text('{"next_inputs":{"selector":"example.json","downstream_graph":"next-graph"}}')
+
+    @node(id="artifact_node")
+    async def artifact_node(value: str, ctx):
+        return {
+            "graph_name": "demo-graph",
+            "run_name": value,
+            "run_dir": str(tmp_path),
+            "manifest_path": str(manifest_path),
+            "status": "approved",
+            "summary": "demo",
+        }
+
+    @workflow(name="artifact-flow")
+    def artifact_flow():
+        return artifact_node(value=["demo"])
+
+    app = create_app(workflows=[artifact_flow])
+    client = TestClient(app)
+    response = client.post("/api/workflows/artifact-flow/runs")
+    assert response.status_code == 200
+    run_id = response.json()["run_id"]
+    wait_for_run_status(client, run_id, "completed")
+
+    artifact = client.get(f"/api/runs/{run_id}/artifact")
+    assert artifact.status_code == 200
+    payload = artifact.json()
+    assert payload["artifact"]["graph_name"] == "demo-graph"
+    assert payload["manifest"]["next_inputs"]["downstream_graph"] == "next-graph"
 
 
 def test_run_history_filters_by_workflow_and_version():

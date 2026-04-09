@@ -146,6 +146,68 @@ function setLaunchMenuError(message = "") {
   node.classList.toggle("hidden", !message);
 }
 
+function workflowGraphName(workflowName) {
+  return workflowName?.replace(/^thalis-/, "") ?? "";
+}
+
+function normalizeNextInputValue(key, value) {
+  if (key === "selector" && typeof value === "string") {
+    return [value];
+  }
+  return value;
+}
+
+function applyNextInputsToLaunch(nextInputs = {}) {
+  const kwargs = parseJsonField("run-workflow-kwargs", "kwargs");
+  if (kwargs === null || Array.isArray(kwargs) || typeof kwargs !== "object") {
+    throw new Error("kwargs JSON must parse to an object");
+  }
+  const allowed = new Set((state.launchSpec?.params ?? []).map((param) => param.name));
+  const merged = { ...kwargs };
+  for (const [key, value] of Object.entries(nextInputs)) {
+    if (key === "downstream_graph" || !allowed.has(key)) continue;
+    merged[key] = normalizeNextInputValue(key, value);
+  }
+  $("run-workflow-kwargs").value = serializeLaunchJson(merged, {});
+  state.launchInputsDirty = true;
+}
+
+function renderUpstreamLaunchHelper() {
+  const wrapper = $("upstream-launch-helper");
+  const select = $("upstream-result-select");
+  const hint = $("upstream-result-hint");
+  const currentGraph = workflowGraphName(state.selectedWorkflow);
+  const options = state.upstreamOptions.filter((option) => {
+    const downstreamGraph = option.nextInputs?.downstream_graph;
+    return !downstreamGraph || downstreamGraph === currentGraph;
+  });
+  const supported = Boolean(state.selectedWorkflow);
+  wrapper.classList.toggle("hidden", !supported);
+  select.replaceChildren();
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = state.upstreamOptionsLoading
+    ? "Loading recent upstream artifacts..."
+    : "Choose a recent upstream artifact";
+  select.append(placeholder);
+
+  for (const option of options) {
+    const element = document.createElement("option");
+    element.value = option.runId;
+    element.textContent = option.label;
+    select.append(element);
+  }
+
+  if (state.upstreamOptionsError) {
+    hint.textContent = state.upstreamOptionsError;
+  } else if (!options.length) {
+    hint.textContent = "No compatible upstream artifacts found for this workflow.";
+  } else {
+    hint.textContent = "Selecting an upstream artifact will merge its next_inputs into kwargs.";
+  }
+}
+
 function serializeLaunchJson(value, fallback) {
   return JSON.stringify(value ?? fallback, null, 2);
 }
@@ -170,12 +232,65 @@ function renderLaunchMenu() {
   const button = $("run-workflow-menu-button");
   menu.classList.toggle("hidden", !state.launchMenuOpen);
   button.setAttribute("aria-expanded", String(state.launchMenuOpen));
+  renderUpstreamLaunchHelper();
 }
 
 function setLaunchMenuOpen(open) {
   state.launchMenuOpen = open;
   if (!open) setLaunchMenuError("");
   renderLaunchMenu();
+  if (open) {
+    refreshUpstreamOptions().catch((error) => {
+      state.upstreamOptionsError = error.message;
+      renderUpstreamLaunchHelper();
+      console.error(error);
+    });
+  }
+}
+
+async function refreshUpstreamOptions() {
+  if (!state.selectedWorkflow) {
+    state.upstreamOptions = [];
+    state.upstreamOptionsError = "";
+    renderUpstreamLaunchHelper();
+    return;
+  }
+  state.upstreamOptionsLoading = true;
+  state.upstreamOptionsError = "";
+  renderUpstreamLaunchHelper();
+  try {
+    const workflowSummaries = await fetchJson("/api/workflows");
+    const runsByWorkflow = await Promise.all(
+      workflowSummaries.map(async (workflow) => {
+        const payload = await fetchJson(`/api/workflows/${workflow.name}/runs`);
+        return payload.runs
+          .filter((run) => run.status === "completed")
+          .slice(0, 3)
+          .map((run) => ({ workflow: workflow.name, run }));
+      }),
+    );
+    const recentRuns = runsByWorkflow.flat().slice(0, 12);
+    const artifacts = await Promise.all(
+      recentRuns.map(async ({ workflow, run }) => {
+        const payload = await fetchJson(`/api/runs/${run.run_id}/artifact`);
+        const artifact = payload.artifact;
+        const manifest = payload.manifest;
+        if (!artifact || !manifest?.next_inputs) return null;
+        return {
+          runId: run.run_id,
+          workflow,
+          runName: artifact.run_name ?? run.run_id,
+          summary: artifact.summary ?? "",
+          nextInputs: manifest.next_inputs,
+          label: `${workflow} · ${artifact.run_name ?? run.run_id}`,
+        };
+      }),
+    );
+    state.upstreamOptions = artifacts.filter(Boolean);
+  } finally {
+    state.upstreamOptionsLoading = false;
+    renderUpstreamLaunchHelper();
+  }
 }
 
 function setSectionCollapsed(key, collapsed) {
@@ -733,9 +848,10 @@ async function loadRunDetail() {
 async function loadWorkflowHistory() {
   if (!state.selectedWorkflow) return;
 
-  const [versionsPayload, graphPayload] = await Promise.all([
+  const [versionsPayload, graphPayload, launchSpecPayload] = await Promise.all([
     fetchJson(`/api/workflows/${state.selectedWorkflow}/versions`),
     fetchJson(`/api/workflows/${state.selectedWorkflow}/graph`),
+    fetchJson(`/api/workflows/${state.selectedWorkflow}/launch-spec`),
   ]);
   const knownVersions = new Set(versionsPayload.versions.map((version) => version.version));
   if (state.selectedVersion && !knownVersions.has(state.selectedVersion)) {
@@ -748,6 +864,7 @@ async function loadWorkflowHistory() {
   );
 
   state.graph = graphPayload;
+  state.launchSpec = launchSpecPayload;
   renderRunButton();
   renderVersions(versionsPayload);
   renderRuns(runsPayload);
@@ -929,6 +1046,20 @@ $("run-workflow-args").addEventListener("input", () => {
 });
 $("run-workflow-kwargs").addEventListener("input", () => {
   state.launchInputsDirty = true;
+});
+$("upstream-result-select").addEventListener("change", async (event) => {
+  const runId = event.target.value;
+  if (!runId) return;
+  const option = state.upstreamOptions.find((item) => item.runId === runId);
+  if (!option) return;
+  try {
+    applyNextInputsToLaunch(option.nextInputs);
+    setLaunchMenuError("");
+    $("upstream-result-hint").textContent = `Applied next_inputs from ${option.workflow} · ${option.runName}.`;
+  } catch (error) {
+    setLaunchMenuError(error.message);
+    console.error(error);
+  }
 });
 $("run-workflow-menu-button").addEventListener("click", () => {
   setLaunchMenuOpen(!state.launchMenuOpen);

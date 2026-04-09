@@ -219,7 +219,12 @@ class RedisStore(InMemoryStore):
         def pump() -> None:
             try:
                 while not stop_event.is_set():
-                    message = pubsub.get_message(timeout=0.1)
+                    try:
+                        message = pubsub.get_message(timeout=0.1)
+                    except (OSError, ValueError):
+                        if stop_event.is_set():
+                            break
+                        raise
                     if not message or message.get("type") != "message":
                         continue
                     data = message.get("data")
@@ -228,7 +233,10 @@ class RedisStore(InMemoryStore):
                     event = json.loads(data)
                     loop.call_soon_threadsafe(queue.put_nowait, event)
             finally:
-                pubsub.close()
+                try:
+                    pubsub.close()
+                except (OSError, ValueError):
+                    pass
 
         thread = threading.Thread(target=pump, name=f"workgraph-pubsub-{run_id}", daemon=True)
         thread.start()
@@ -283,8 +291,13 @@ class RedisStore(InMemoryStore):
             return
         stop_event, thread, pubsub = handle
         stop_event.set()
-        pubsub.close()
         thread.join(timeout=0.5)
+        if thread.is_alive():
+            try:
+                pubsub.close()
+            except (OSError, ValueError):
+                pass
+            thread.join(timeout=0.5)
 
     def finalize_run(self, run: RunRecord, *, run_ttl_seconds: int, stream_ttl_seconds: int) -> None:
         self.redis.expire(f"run:{run.run_id}", run_ttl_seconds)
