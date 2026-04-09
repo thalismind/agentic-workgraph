@@ -46,6 +46,9 @@ def test_app_exposes_workflow_graph():
     assert "ws-status-indicator" in ui.text
     assert "ws-status-label" in ui.text
     assert "ws-status-last" in ui.text
+    assert "toggle-final-artifact" in ui.text
+    assert "toggle-items-list" in ui.text
+    assert "toggle-trace-list" in ui.text
 
     ui_script = client.get("/ui/static/app.js")
     assert ui_script.status_code == 200
@@ -60,6 +63,8 @@ def test_app_exposes_workflow_graph():
     assert "renderLayoutControls" in ui_script.text
     assert "renderWsStatus" in ui_script.text
     assert "startWsStatusClock" in ui_script.text
+    assert "toggleSection" in ui_script.text
+    assert "renderCollapsedSections" in ui_script.text
     assert '"hashchange"' in ui_script.text
 
     graph_script = client.get("/ui/static/graph.js")

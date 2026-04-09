@@ -52,6 +52,47 @@ function renderLayoutControls() {
   $("restore-layout-button").classList.toggle("hidden", !focused);
 }
 
+function setSectionCollapsed(key, collapsed) {
+  state.collapsedSections[key] = collapsed;
+}
+
+function toggleSection(key) {
+  setSectionCollapsed(key, !state.collapsedSections[key]);
+  renderCollapsedSections();
+}
+
+function renderCollapsedSections() {
+  const sections = [
+    {
+      key: "finalArtifact",
+      buttonId: "toggle-final-artifact",
+      contentId: "final-artifact",
+      label: "artifact",
+    },
+    {
+      key: "itemsList",
+      buttonId: "toggle-items-list",
+      contentId: "items-list",
+      label: "items",
+    },
+    {
+      key: "traceList",
+      buttonId: "toggle-trace-list",
+      contentId: "trace-list",
+      label: "traces",
+    },
+  ];
+  for (const section of sections) {
+    const collapsed = Boolean(state.collapsedSections[section.key]);
+    const button = $(section.buttonId);
+    const content = $(section.contentId);
+    button.textContent = collapsed ? `Show ${section.label}` : "Collapse";
+    button.setAttribute("aria-expanded", String(!collapsed));
+    content.classList.toggle("hidden", collapsed);
+    content.classList.toggle("collapsible-content", true);
+  }
+}
+
 function setDetailFocus(enabled) {
   $("main-layout").classList.toggle("detail-focus", enabled);
   renderLayoutControls();
@@ -156,11 +197,27 @@ function renderDetailItems(containerId, items, emptyText, mapFn) {
   for (const item of items) {
     const node = template.content.firstElementChild.cloneNode(true);
     const mapped = mapFn(item);
+    const itemKey = mapped.key ?? `${containerId}:${mapped.title}:${mapped.meta}`;
     node.querySelector(".detail-item-title").textContent = mapped.title;
     node.querySelector(".detail-item-meta").textContent = mapped.meta;
     node.querySelector(".detail-item-body").textContent = mapped.body;
+    const head = node.querySelector(".detail-item-head");
+    const expanded = state.expandedDetailItems.has(itemKey);
+    node.classList.toggle("collapsed", !expanded);
+    head.setAttribute("aria-expanded", String(expanded));
     if (mapped.active) node.classList.add("active");
-    if (mapped.onClick) node.addEventListener("click", mapped.onClick);
+    head.addEventListener("click", async () => {
+      if (state.expandedDetailItems.has(itemKey)) {
+        state.expandedDetailItems.delete(itemKey);
+      } else {
+        state.expandedDetailItems.add(itemKey);
+      }
+      if (mapped.onClick) {
+        await mapped.onClick();
+      } else {
+        renderDetailPanels();
+      }
+    });
     container.append(node);
   }
 }
@@ -207,6 +264,7 @@ function renderNodeInspector() {
     state.nodeItems,
     "No items recorded for this node.",
     (item) => ({
+      key: `node-item:${state.selectedNodeId}:${item.index}`,
       title: `item ${item.index}`,
       meta: `${item.status} · ${formatDuration(item.duration_ms)}`,
       body: `${JSON.stringify(item.output)}\nprogress: ${Math.round((item.progress ?? 0) * 100)}%${item.progress_desc ? ` · ${item.progress_desc}` : ""}`,
@@ -245,6 +303,7 @@ function updateRunSummary() {
   const artifactPanel = $("final-artifact");
   if (!state.run.final_output?.length) {
     artifactPanel.textContent = "No terminal artifact recorded.";
+    renderCollapsedSections();
     return;
   }
   const preview = JSON.stringify(state.run.final_output[0], null, 2);
@@ -256,6 +315,7 @@ function updateRunSummary() {
   `;
   artifactPanel.querySelector(".artifact-preview").textContent =
     `${preview.slice(0, 1200)}${preview.length > 1200 ? "\n..." : ""}`;
+  renderCollapsedSections();
 }
 
 async function loadStream() {
@@ -295,6 +355,7 @@ function renderDetailPanels() {
     state.timeline,
     "No node timing data available.",
     (item) => ({
+      key: `timeline:${item.node_id}`,
       title: item.node_id,
       meta: `${item.status} · ${formatDuration(item.duration_ms)}`,
       body: `${formatStarted(item.started_at)} → ${item.finished_at ? formatStarted(item.finished_at) : "pending"}`,
@@ -313,6 +374,7 @@ function renderDetailPanels() {
     state.errors,
     "No errors recorded.",
     (item) => ({
+      key: `error:${item.node_id}:${item.item_index ?? "na"}:${item.timestamp ?? item.message}`,
       title: `${item.node_id}${item.item_index == null ? "" : ` [${item.item_index}]`}`,
       meta: item.error_type,
       body: item.message,
@@ -324,11 +386,13 @@ function renderDetailPanels() {
     state.trace,
     "No trace spans recorded.",
     (item) => ({
+      key: `trace:${item.name}:${item.start_time ?? item.end_time ?? item.status}`,
       title: item.name,
       meta: item.status,
       body: JSON.stringify(item.attributes, null, 2),
     }),
   );
+  renderCollapsedSections();
 }
 
 async function refreshRunDetailData() {
@@ -632,6 +696,9 @@ $("refresh-button").addEventListener("click", () => refresh().catch(console.erro
 $("run-workflow-button").addEventListener("click", () => launchWorkflowRun().catch(console.error));
 $("focus-debugger-button").addEventListener("click", () => setDetailFocus(true));
 $("restore-layout-button").addEventListener("click", () => setDetailFocus(false));
+$("toggle-final-artifact").addEventListener("click", () => toggleSection("finalArtifact"));
+$("toggle-items-list").addEventListener("click", () => toggleSection("itemsList"));
+$("toggle-trace-list").addEventListener("click", () => toggleSection("traceList"));
 $("items-tab").addEventListener("click", () => setTab("items"));
 $("stream-tab").addEventListener("click", () => setTab("stream"));
 window.addEventListener("hashchange", () => {
@@ -641,6 +708,7 @@ setTab("items");
 renderRunButton();
 renderLayoutControls();
 renderWsStatus();
+renderCollapsedSections();
 startWsStatusClock();
 
 refresh().catch((error) => {

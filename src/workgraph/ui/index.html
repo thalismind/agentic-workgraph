@@ -69,7 +69,21 @@
             </div>
           </div>
           <div id="detail-summary" class="detail-summary empty-state">No run selected.</div>
-          <div id="final-artifact" class="detail-summary empty-state">No terminal artifact recorded.</div>
+          <section class="collapsible-block">
+            <div class="section-heading collapsible-heading">
+              <h3>Final Artifact</h3>
+              <button
+                id="toggle-final-artifact"
+                class="collapse-button"
+                type="button"
+                aria-expanded="true"
+                aria-controls="final-artifact"
+              >
+                Collapse
+              </button>
+            </div>
+            <div id="final-artifact" class="detail-summary empty-state">No terminal artifact recorded.</div>
+          </section>
           <div class="detail-grid">
             <section class="node-section">
               <div class="section-heading">
@@ -82,6 +96,18 @@
                 <button id="stream-tab" class="tab-button" data-tab="stream" type="button">Stream</button>
               </div>
               <div id="items-panel" class="tab-panel">
+                <div class="section-heading collapsible-heading subsection-heading">
+                  <span class="muted small">Recorded items</span>
+                  <button
+                    id="toggle-items-list"
+                    class="collapse-button"
+                    type="button"
+                    aria-expanded="true"
+                    aria-controls="items-list"
+                  >
+                    Collapse
+                  </button>
+                </div>
                 <div id="items-list" class="stack compact"></div>
               </div>
               <div id="stream-panel" class="tab-panel hidden">
@@ -97,7 +123,18 @@
               <div id="errors-list" class="stack compact"></div>
             </section>
             <section class="trace-section">
-              <h3>Trace Spans</h3>
+              <div class="section-heading collapsible-heading">
+                <h3>Trace Spans</h3>
+                <button
+                  id="toggle-trace-list"
+                  class="collapse-button"
+                  type="button"
+                  aria-expanded="true"
+                  aria-controls="trace-list"
+                >
+                  Collapse
+                </button>
+              </div>
               <div id="trace-list" class="stack compact"></div>
             </section>
           </div>
@@ -135,10 +172,12 @@
 
     <template id="detail-item-template">
       <article class="detail-item">
-        <div class="row row-space">
-          <strong class="detail-item-title"></strong>
-          <span class="detail-item-meta"></span>
-        </div>
+        <button class="detail-item-head" type="button" aria-expanded="true">
+          <div class="row row-space">
+            <strong class="detail-item-title"></strong>
+            <span class="detail-item-meta"></span>
+          </div>
+        </button>
         <p class="detail-item-body muted"></p>
       </article>
     </template>

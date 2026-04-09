@@ -341,6 +341,36 @@ h1 {
   margin-bottom: 12px;
 }
 
+.collapsible-heading {
+  margin-bottom: 10px;
+}
+
+.subsection-heading {
+  margin-top: 2px;
+}
+
+.collapse-button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(245, 248, 252, 0.88);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.collapse-button:hover {
+  border-color: rgba(30, 136, 229, 0.34);
+  color: var(--ink);
+  background: rgba(227, 242, 253, 0.92);
+}
+
+.collapsible-content.hidden {
+  display: none !important;
+}
+
 .graph-section {
   margin-bottom: 18px;
 }
@@ -464,6 +494,19 @@ h1 {
   padding: 12px 14px;
 }
 
+.detail-item-head {
+  appearance: none;
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .detail-item.active {
   border-color: rgba(30, 136, 229, 0.48);
   background: rgba(227, 242, 253, 0.92);
@@ -473,6 +516,10 @@ h1 {
   margin-top: 8px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.detail-item.collapsed .detail-item-body {
+  display: none;
 }
 
 .empty-state {

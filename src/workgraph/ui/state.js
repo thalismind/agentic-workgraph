@@ -21,6 +21,12 @@ export const state = {
   traceRefreshTimer: null,
   launchingRun: false,
   applyingHashRoute: false,
+  collapsedSections: {
+    finalArtifact: false,
+    itemsList: false,
+    traceList: false,
+  },
+  expandedDetailItems: new Set(),
 };
 
 export const $ = (id) => document.getElementById(id);
