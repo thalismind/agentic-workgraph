@@ -1,5 +1,19 @@
+const FAVORITE_WORKFLOWS_STORAGE_KEY = "workgraph.favoriteWorkflows";
+
+function loadFavoriteWorkflows() {
+  try {
+    const value = globalThis.localStorage?.getItem(FAVORITE_WORKFLOWS_STORAGE_KEY);
+    if (!value) return new Set();
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? new Set(parsed.filter((entry) => typeof entry === "string")) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
 export const state = {
   workflows: [],
+  favoriteWorkflows: loadFavoriteWorkflows(),
   workflowFilter: "",
   selectedWorkflow: null,
   selectedVersion: null,
@@ -85,6 +99,26 @@ export function closeSocket() {
   if (state.ws) {
     state.ws.close();
     state.ws = null;
+  }
+}
+
+export function isFavoriteWorkflow(name) {
+  return state.favoriteWorkflows.has(name);
+}
+
+export function toggleFavoriteWorkflow(name) {
+  if (state.favoriteWorkflows.has(name)) {
+    state.favoriteWorkflows.delete(name);
+  } else {
+    state.favoriteWorkflows.add(name);
+  }
+  try {
+    globalThis.localStorage?.setItem(
+      FAVORITE_WORKFLOWS_STORAGE_KEY,
+      JSON.stringify([...state.favoriteWorkflows].sort()),
+    );
+  } catch {
+    // Ignore storage failures and keep the in-memory preference for this session.
   }
 }
 

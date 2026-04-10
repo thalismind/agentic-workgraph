@@ -677,6 +677,10 @@ h3 {
     rgba(0, 229, 176, 0.12);
 }
 
+.workflow-list-item {
+  position: relative;
+}
+
 .workflow-card,
 .run-card {
   text-align: left;
@@ -686,6 +690,8 @@ h3 {
 .workflow-card {
   display: grid;
   gap: 4px;
+  width: 100%;
+  padding-right: 52px;
 }
 
 .workflow-name {
@@ -699,6 +705,45 @@ h3 {
   margin-top: 4px;
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.workflow-favorite-button {
+  appearance: none;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(10, 74, 60, 0.14);
+  border-radius: 999px;
+  background: rgba(247, 250, 252, 0.82);
+  color: #8a977f;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.workflow-favorite-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 215, 109, 0.46);
+  color: #8a5a00;
+  background: rgba(255, 247, 219, 0.94);
+}
+
+.workflow-favorite-button.active {
+  color: #8a5a00;
+  background: rgba(255, 239, 183, 0.98);
+  border-color: rgba(255, 215, 109, 0.62);
+  box-shadow: 0 0 0 3px rgba(255, 215, 109, 0.14);
 }
 
 .row {

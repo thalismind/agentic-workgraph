@@ -6,6 +6,7 @@ import {
   fetchJson,
   formatDuration,
   formatStarted,
+  isFavoriteWorkflow,
   postJson,
   renderRunButton,
   setActiveButton,
@@ -13,6 +14,7 @@ import {
   state,
   stopTraceRefresh,
   stopWorkflowsRefresh,
+  toggleFavoriteWorkflow,
 } from "./state.js";
 
 function formatRelativeTime(timestamp) {
@@ -434,9 +436,14 @@ function renderWorkflows() {
   const template = $("workflow-card-template");
   workflowsList.replaceChildren();
   const filter = state.workflowFilter.trim().toLowerCase();
-  const visibleWorkflows = state.workflows.filter((workflow) =>
-    !filter || workflow.name.toLowerCase().includes(filter),
-  );
+  const visibleWorkflows = state.workflows
+    .filter((workflow) => !filter || workflow.name.toLowerCase().includes(filter))
+    .sort((left, right) => {
+      const leftFavorite = isFavoriteWorkflow(left.name);
+      const rightFavorite = isFavoriteWorkflow(right.name);
+      if (leftFavorite !== rightFavorite) return leftFavorite ? -1 : 1;
+      return left.name.localeCompare(right.name);
+    });
   $("workflow-count").textContent = String(visibleWorkflows.length);
 
   if (visibleWorkflows.length === 0) {
@@ -446,11 +453,14 @@ function renderWorkflows() {
 
   for (const workflow of visibleWorkflows) {
     const node = template.content.firstElementChild.cloneNode(true);
-    node.dataset.value = workflow.name;
-    node.querySelector(".workflow-name").textContent = workflow.name;
-    node.querySelector(".workflow-meta").textContent =
+    const cardButton = node.querySelector(".workflow-card");
+    const favoriteButton = node.querySelector(".workflow-favorite-button");
+    const favorite = isFavoriteWorkflow(workflow.name);
+    cardButton.dataset.value = workflow.name;
+    cardButton.querySelector(".workflow-name").textContent = workflow.name;
+    cardButton.querySelector(".workflow-meta").textContent =
       `${workflow.run_count} runs · ${workflow.version_count} versions`;
-    node.addEventListener("click", async () => {
+    cardButton.addEventListener("click", async () => {
       closeLiveSocket();
       stopTraceRefresh();
       state.selectedWorkflow = workflow.name;
@@ -458,10 +468,19 @@ function renderWorkflows() {
       state.selectedRunId = null;
       state.selectedNodeId = null;
       state.selectedItemIndex = 0;
-      setActiveButton(workflowsList, workflow.name);
       await loadWorkflowHistory();
     });
-    if (state.selectedWorkflow === workflow.name) node.classList.add("active");
+    favoriteButton.classList.toggle("active", favorite);
+    favoriteButton.setAttribute("aria-pressed", String(favorite));
+    favoriteButton.setAttribute("aria-label", favorite ? "Remove workflow from favorites" : "Favorite workflow");
+    favoriteButton.textContent = favorite ? "★" : "☆";
+    favoriteButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleFavoriteWorkflow(workflow.name);
+      renderWorkflows();
+    });
+    if (state.selectedWorkflow === workflow.name) cardButton.classList.add("active");
     workflowsList.append(node);
   }
 }

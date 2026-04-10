@@ -195,10 +195,15 @@
     </main>
 
     <template id="workflow-card-template">
-      <button class="workflow-card card-button" type="button">
-        <span class="workflow-name"></span>
-        <span class="workflow-meta"></span>
-      </button>
+      <div class="workflow-list-item">
+        <button class="workflow-card card-button" type="button">
+          <span class="workflow-name"></span>
+          <span class="workflow-meta"></span>
+        </button>
+        <button class="workflow-favorite-button" type="button" aria-pressed="false" title="Favorite workflow">
+          ☆
+        </button>
+      </div>
     </template>
 
     <template id="version-chip-template">
