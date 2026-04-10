@@ -248,7 +248,7 @@ h3 {
 .workflows-panel {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 48px);
+  max-height: calc(87.5vh);
 }
 
 .panel-header {
