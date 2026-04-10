@@ -1,6 +1,8 @@
 import { $, formatDuration, formatNodeLabel, state } from "./state.js";
 
 const WORKGRAPH_NODE_TYPE = "workgraph/runtime";
+const SUBGRAPH_ICON_X_OFFSET = 20;
+const SUBGRAPH_ICON_Y = -11;
 
 let liteGraphRegistered = false;
 let liteGraphGraph = null;
@@ -84,6 +86,16 @@ function statusTheme(status, streaming) {
     muted: "#645d72",
     titleText: "#f0e6d3",
   };
+}
+
+function isSubgraphButtonHit(pos, nodeWidth, titleHeight) {
+  return (
+    Array.isArray(pos) &&
+    pos[1] >= -titleHeight &&
+    pos[1] <= 0 &&
+    pos[0] >= nodeWidth - titleHeight &&
+    pos[0] <= nodeWidth
+  );
 }
 
 export function computeGraphLayout(graph) {
@@ -199,8 +211,8 @@ function ensureLiteGraphRegistration() {
     }
     if (properties.isSubgraph) {
       ctx.font = "700 13px system-ui, sans-serif";
-      ctx.fillStyle = properties.childRunId ? theme.boxcolor : theme.muted;
-      ctx.fillText("↗", width - 20, 42, 16);
+      ctx.fillStyle = properties.childRunId ? theme.titleText : "rgba(240, 230, 211, 0.68)";
+      ctx.fillText("↗", width - SUBGRAPH_ICON_X_OFFSET, SUBGRAPH_ICON_Y, 16);
     }
     ctx.restore();
   };
@@ -384,6 +396,13 @@ export function renderGraph({ onSelectNode, onOpenSubgraph }) {
     if (graphNode.properties.childRunId) {
       graphNode.onDblClick = () => {
         onOpenSubgraph?.(graphNode.properties.childRunId);
+      };
+      graphNode.onMouseDown = (_event, pos) => {
+        if (!isSubgraphButtonHit(pos, graphNode.size[0], LiteGraph.NODE_TITLE_HEIGHT)) {
+          return false;
+        }
+        onOpenSubgraph?.(graphNode.properties.childRunId);
+        return true;
       };
     }
     graphNode.setSize([220, Math.max(graphNode.size[1], 108)]);
