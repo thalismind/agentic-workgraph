@@ -4,16 +4,18 @@ import asyncio
 import functools
 import hashlib
 import inspect
+import itertools
 import json
+import random
 import threading
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, get_type_hints
 from uuid import uuid4
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from opentelemetry.trace import Status, StatusCode
 
 from .context import Context, Scratchpad
@@ -40,6 +42,19 @@ from .tracing import Telemetry
 _TRACE_STATE: ContextVar["TraceState | None"] = ContextVar("workgraph_trace_state", default=None)
 _DEFAULT_STORE = InMemoryStore()
 _LEADING_NON_ITEM_PARAMS = {"self", "cls", "ctx"}
+_TRACE_AUTO_COMBINATION_LIMIT = 100
+_TRACE_NUMERIC_SAMPLE_TARGET = 5
+
+
+@dataclass(frozen=True)
+class _TraceParameterPlan:
+    name: str
+    value: Any
+    options: tuple[Any, ...] = ()
+
+    @property
+    def is_variable(self) -> bool:
+        return len(self.options) > 1
 
 
 def _schema_name(schema: Any) -> str | None:
@@ -54,6 +69,229 @@ def _utc_now() -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _stable_trace_key(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def _dedupe_trace_values(values: list[Any]) -> list[Any]:
+    seen: set[str] = set()
+    deduped: list[Any] = []
+    for value in values:
+        key = _stable_trace_key(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
+
+
+def _numeric_trace_values(schema: dict[str, Any], *, seed_source: str) -> list[Any] | None:
+    schema_type = schema.get("type")
+    minimum = schema.get("minimum")
+    maximum = schema.get("maximum")
+    if minimum is None or maximum is None:
+        return None
+    if schema_type not in {"integer", "number"}:
+        return None
+    if not isinstance(minimum, (int, float)) or not isinstance(maximum, (int, float)):
+        return None
+    if minimum > maximum:
+        return None
+
+    rng = random.Random(seed_source)
+    values: list[Any] = []
+    if schema_type == "integer":
+        low = int(minimum)
+        high = int(maximum)
+        if low > high:
+            return None
+        values.extend([low, high, low + (high - low) // 2])
+        if low < high:
+            for _ in range(_TRACE_NUMERIC_SAMPLE_TARGET):
+                values.append(rng.randint(low, high))
+        return sorted(_dedupe_trace_values(values))
+
+    low = float(minimum)
+    high = float(maximum)
+    midpoint = round((low + high) / 2, 6)
+    values.extend([round(low, 6), round(high, 6), midpoint])
+    if low < high:
+        for _ in range(_TRACE_NUMERIC_SAMPLE_TARGET):
+            values.append(round(rng.uniform(low, high), 6))
+    return sorted(_dedupe_trace_values(values))
+
+
+def _schema_trace_values(schema: dict[str, Any], *, seed_source: str) -> list[Any] | None:
+    if "const" in schema:
+        return [schema["const"]]
+    if "enum" in schema:
+        return _dedupe_trace_values(list(schema["enum"]))
+    if schema.get("type") == "null":
+        return [None]
+
+    for keyword in ("anyOf", "oneOf"):
+        branches = schema.get(keyword)
+        if not isinstance(branches, list):
+            continue
+        values: list[Any] = []
+        for index, branch in enumerate(branches):
+            if not isinstance(branch, dict):
+                continue
+            branch_values = _schema_trace_values(branch, seed_source=f"{seed_source}:{keyword}:{index}")
+            if branch_values:
+                values.extend(branch_values)
+        deduped = _dedupe_trace_values(values)
+        if deduped:
+            return deduped
+
+    numeric_values = _numeric_trace_values(schema, seed_source=seed_source)
+    if numeric_values:
+        return numeric_values
+
+    if schema.get("type") == "array" and isinstance(schema.get("items"), dict):
+        item_values = _schema_trace_values(schema["items"], seed_source=f"{seed_source}:items")
+        if item_values:
+            min_items = schema.get("minItems", 1)
+            target_size = min_items if isinstance(min_items, int) and min_items > 1 else 1
+            return [[item] * target_size for item in item_values]
+
+    return None
+
+
+def _parameter_trace_values(annotation: Any, *, parameter_name: str) -> list[Any] | None:
+    if annotation is inspect._empty:
+        return None
+    try:
+        adapter = TypeAdapter(annotation)
+        schema = adapter.json_schema()
+    except Exception:  # noqa: BLE001
+        return None
+    values = _schema_trace_values(schema, seed_source=parameter_name)
+    if not values:
+        return None
+    normalized: list[Any] = []
+    for value in values:
+        try:
+            normalized.append(adapter.validate_python(value))
+        except Exception:  # noqa: BLE001
+            normalized.append(value)
+    return _dedupe_trace_values(normalized)
+
+
+def _trace_parameter_plan(
+    parameter: inspect.Parameter,
+    provided: dict[str, Any],
+    annotations: dict[str, Any],
+) -> _TraceParameterPlan:
+    if parameter.name in provided:
+        value = provided[parameter.name]
+        return _TraceParameterPlan(name=parameter.name, value=value)
+
+    annotation = annotations.get(parameter.name, parameter.annotation)
+    options = _parameter_trace_values(annotation, parameter_name=parameter.name)
+    if options:
+        return _TraceParameterPlan(name=parameter.name, value=options[0], options=tuple(options))
+
+    if parameter.default is not inspect._empty:
+        return _TraceParameterPlan(name=parameter.name, value=parameter.default)
+
+    annotation_repr = None if annotation is inspect._empty else repr(annotation)
+    raise TypeError(
+        f"Workflow parameter '{parameter.name}' must be provided or use a traceable annotation"
+        f" (enum, literal, or bounded number). annotation={annotation_repr}"
+    )
+
+
+def _normalize_trace_mode(trace_mode: str) -> str:
+    if trace_mode not in {"simple", "combined", "auto"}:
+        raise ValueError(f"Unsupported trace_mode '{trace_mode}'. Expected 'simple', 'combined', or 'auto'.")
+    return trace_mode
+
+
+def _trace_assignments(
+    workflow_def: WorkflowDefinition,
+    *args: Any,
+    trace_mode: str,
+    trace_combination_limit: int,
+    **kwargs: Any,
+) -> tuple[list[dict[str, Any]], str, int]:
+    signature = inspect.signature(workflow_def.func)
+    provided = dict(signature.bind_partial(*args, **kwargs).arguments)
+    annotations = get_type_hints(workflow_def.func, include_extras=True)
+    plans = [_trace_parameter_plan(parameter, provided, annotations) for parameter in signature.parameters.values()]
+    variable_plans = [plan for plan in plans if plan.is_variable]
+    baseline = {plan.name: plan.value for plan in plans}
+
+    combination_count = 1
+    for plan in variable_plans:
+        combination_count *= len(plan.options)
+
+    resolved_mode = _normalize_trace_mode(trace_mode)
+    if resolved_mode == "auto":
+        resolved_mode = "combined" if combination_count <= trace_combination_limit else "simple"
+
+    assignments: list[dict[str, Any]] = []
+    if not variable_plans:
+        assignments = [baseline]
+    elif resolved_mode == "combined":
+        option_sets = [plan.options for plan in variable_plans]
+        for combination in itertools.product(*option_sets):
+            assignment = dict(baseline)
+            for plan, value in zip(variable_plans, combination, strict=False):
+                assignment[plan.name] = value
+            assignments.append(assignment)
+    else:
+        for plan in variable_plans:
+            for value in plan.options:
+                assignment = dict(baseline)
+                assignment[plan.name] = value
+                assignments.append(assignment)
+
+    deduped_assignments: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for assignment in assignments:
+        key = _stable_trace_key(assignment)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_assignments.append(assignment)
+
+    option_ranks = [
+        { _stable_trace_key(option): option_index for option_index, option in enumerate(plan.options) }
+        for plan in variable_plans
+    ]
+
+    def assignment_sort_key(assignment: dict[str, Any]) -> tuple[Any, ...]:
+        changed_param_indices: list[int] = []
+        changed_option_indices: list[int] = []
+        for plan_index, plan in enumerate(variable_plans):
+            value = assignment[plan.name]
+            if value == baseline[plan.name]:
+                continue
+            changed_param_indices.append(plan_index)
+            changed_option_indices.append(option_ranks[plan_index][_stable_trace_key(value)])
+        return (len(changed_param_indices), tuple(changed_param_indices), tuple(changed_option_indices))
+
+    ordered_assignments = sorted(deduped_assignments or [baseline], key=assignment_sort_key)
+    return ordered_assignments, resolved_mode, combination_count
+
+
+def _assignment_to_call(signature: inspect.Signature, assignment: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    call_args: list[Any] = []
+    call_kwargs: dict[str, Any] = {}
+    for parameter in signature.parameters.values():
+        value = assignment[parameter.name]
+        if parameter.kind in {inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}:
+            call_args.append(value)
+        elif parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+            call_kwargs[parameter.name] = value
+        elif parameter.kind is inspect.Parameter.VAR_POSITIONAL:
+            call_args.extend(value)
+        elif parameter.kind is inspect.Parameter.VAR_KEYWORD:
+            call_kwargs.update(value)
+    return tuple(call_args), call_kwargs
 
 
 def _duration_ms(started_at: datetime | None, finished_at: datetime | None) -> int | None:
@@ -374,7 +612,9 @@ def _referenced_node_payloads(func: Callable[..., Any]) -> list[dict[str, Any]]:
     return nodes
 
 
-def trace_workflow(workflow_def: WorkflowDefinition, *args: Any, **kwargs: Any) -> tuple[GraphSpec, list[NodeCall]]:
+def _trace_single_workflow(
+    workflow_def: WorkflowDefinition, *args: Any, **kwargs: Any
+) -> tuple[GraphSpec, list[NodeCall]]:
     primary_bool_mode = workflow_def.trace_branches != "falsy"
     trace_state = _trace_pass(workflow_def, *args, bool_mode=primary_bool_mode, **kwargs)
 
@@ -386,6 +626,44 @@ def trace_workflow(workflow_def: WorkflowDefinition, *args: Any, **kwargs: Any) 
             "trace_branches='all' merged truthy and falsy graph paths; execution still follows the primary trace plan."
         )
     return graph, trace_state.calls
+
+
+def trace_workflow(
+    workflow_def: WorkflowDefinition,
+    *args: Any,
+    trace_mode: str = "auto",
+    trace_combination_limit: int = _TRACE_AUTO_COMBINATION_LIMIT,
+    **kwargs: Any,
+) -> tuple[GraphSpec, list[NodeCall]]:
+    assignments, resolved_mode, combination_count = _trace_assignments(
+        workflow_def,
+        *args,
+        trace_mode=trace_mode,
+        trace_combination_limit=trace_combination_limit,
+        **kwargs,
+    )
+    signature = inspect.signature(workflow_def.func)
+
+    merged_graph: GraphSpec | None = None
+    merged_calls: list[NodeCall] = []
+    for index, assignment in enumerate(assignments):
+        call_args, call_kwargs = _assignment_to_call(signature, assignment)
+        graph, calls = _trace_single_workflow(workflow_def, *call_args, **call_kwargs)
+        if merged_graph is None:
+            merged_graph = graph
+            merged_calls = calls
+            continue
+        merged_graph = _merge_graph_specs(merged_graph, graph)
+
+    if merged_graph is None:  # pragma: no cover - assignments always has at least one entry
+        raise RuntimeError(f"Failed to trace workflow '{workflow_def.name}'")
+
+    if len(assignments) > 1:
+        merged_graph.warnings.append(
+            f"Trace sampled {len(assignments)} workflow input assignments with trace_mode='{resolved_mode}'"
+            f" (combined_space={combination_count}, limit={trace_combination_limit})."
+        )
+    return merged_graph, merged_calls
 
 
 def _trace_pass(workflow_def: WorkflowDefinition, *args: Any, bool_mode: bool, **kwargs: Any) -> TraceState:

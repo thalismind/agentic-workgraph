@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+from enum import Enum
+from typing import Annotated, Literal
 
 from fastapi.testclient import TestClient
+from pydantic import Field
 
 from workgraph import create_app, node, workflow
 from workgraph.testing import MockLLM
@@ -193,6 +196,54 @@ def parameter_flow(name: list[str] | None = None):
     return select_greeting(name=name or ["default"])
 
 
+class GraphMode(str, Enum):
+    BASIC = "basic"
+    ADVANCED = "advanced"
+
+
+@node(id="graph_seed")
+async def graph_seed(ctx, value: str):
+    return value
+
+
+@node(id="graph_enum")
+async def graph_enum(ctx, value: str):
+    return value
+
+
+@node(id="graph_literal")
+async def graph_literal(ctx, value: str):
+    return value
+
+
+@node(id="graph_numeric")
+async def graph_numeric(ctx, value: str):
+    return value
+
+
+@node(id="graph_combo")
+async def graph_combo(ctx, value: str):
+    return value
+
+
+@workflow(name="graph-parameter-flow")
+def graph_parameter_flow(
+    mode: GraphMode,
+    detail: Literal["short", "long"],
+    count: Annotated[int, Field(ge=1, le=3)],
+):
+    value = graph_seed(value=[f"{mode.value}:{detail}:{count}"])
+    if mode is GraphMode.ADVANCED:
+        value = graph_enum(value=value)
+    if detail == "long":
+        value = graph_literal(value=value)
+    if count >= 2:
+        value = graph_numeric(value=value)
+    if mode is GraphMode.ADVANCED and detail == "long" and count == 3:
+        value = graph_combo(value=value)
+    return value
+
+
 def test_run_emits_event_history():
     store = InMemoryStore()
     app = create_app(workflows=[slow_flow], store=store)
@@ -293,6 +344,22 @@ def test_run_launch_accepts_workflow_kwargs():
     launch_spec = client.get("/api/workflows/parameter-flow/launch-spec")
     assert launch_spec.status_code == 200
     assert launch_spec.json()["params"][0]["name"] == "name"
+
+
+def test_graph_endpoint_supports_trace_modes_for_parameterized_workflows():
+    app = create_app(workflows=[graph_parameter_flow])
+    client = TestClient(app)
+
+    simple_graph = client.get("/api/workflows/graph-parameter-flow/graph?trace_mode=simple")
+    assert simple_graph.status_code == 200
+    assert "graph_combo" not in [node["node_id"] for node in simple_graph.json()["nodes"]]
+
+    combined_graph = client.get("/api/workflows/graph-parameter-flow/graph?trace_mode=combined")
+    assert combined_graph.status_code == 200
+    assert "graph_combo" in [node["node_id"] for node in combined_graph.json()["nodes"]]
+
+    invalid = client.get("/api/workflows/graph-parameter-flow/graph?trace_mode=bogus")
+    assert invalid.status_code == 400
 
 
 def test_run_artifact_reads_manifest(tmp_path):

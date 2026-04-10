@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from enum import Enum
+from typing import Annotated, Literal
+
 from pydantic import BaseModel
+from pydantic import Field
 
 from workgraph import (
     Executor,
@@ -255,3 +259,87 @@ async def test_loop_runs_share_one_display_node():
     assert run.nodes["looped_loop_0"].loop_iteration == 3
     assert len(run.nodes["looped_loop_0"].items) == 3
     assert run.outputs["looped_2"] == ["x"]
+
+
+class TraceFlavor(str, Enum):
+    VANILLA = "vanilla"
+    CHOCOLATE = "chocolate"
+
+
+@node(id="trace_start")
+async def trace_start(ctx, label: str):
+    return label
+
+
+@node(id="trace_enum_branch")
+async def trace_enum_branch(ctx, label: str):
+    return f"enum:{label}"
+
+
+@node(id="trace_literal_branch")
+async def trace_literal_branch(ctx, label: str):
+    return f"literal:{label}"
+
+
+@node(id="trace_numeric_branch")
+async def trace_numeric_branch(ctx, label: str):
+    return f"numeric:{label}"
+
+
+@node(id="trace_combo_branch")
+async def trace_combo_branch(ctx, label: str):
+    return f"combo:{label}"
+
+
+@workflow(name="parameterized-trace-flow")
+def parameterized_trace_flow(
+    flavor: TraceFlavor,
+    mode: Literal["summary", "detailed"],
+    count: Annotated[int, Field(ge=1, le=3)],
+):
+    label = trace_start(label=[f"{flavor.value}:{mode}:{count}"])
+    if flavor is TraceFlavor.CHOCOLATE:
+        label = trace_enum_branch(label=label)
+    if mode == "detailed":
+        label = trace_literal_branch(label=label)
+    if count >= 2:
+        label = trace_numeric_branch(label=label)
+    if flavor is TraceFlavor.CHOCOLATE and mode == "detailed" and count == 3:
+        label = trace_combo_branch(label=label)
+    return label
+
+
+async def test_trace_workflow_simple_mode_sweeps_one_parameter_at_a_time():
+    graph, _calls = trace_workflow(parameterized_trace_flow, trace_mode="simple")
+
+    assert [node.node_id for node in graph.nodes] == [
+        "trace_start",
+        "trace_enum_branch",
+        "trace_literal_branch",
+        "trace_numeric_branch",
+    ]
+    assert "trace_combo_branch" not in [node.node_id for node in graph.nodes]
+    assert any("trace_mode='simple'" in warning for warning in graph.warnings)
+
+
+async def test_trace_workflow_combined_mode_includes_cross_parameter_branches():
+    graph, _calls = trace_workflow(parameterized_trace_flow, trace_mode="combined")
+
+    assert [node.node_id for node in graph.nodes] == [
+        "trace_start",
+        "trace_enum_branch",
+        "trace_literal_branch",
+        "trace_numeric_branch",
+        "trace_combo_branch",
+    ]
+    assert any("trace_mode='combined'" in warning for warning in graph.warnings)
+
+
+async def test_trace_workflow_auto_mode_switches_between_combined_and_simple():
+    combined_graph, _calls = trace_workflow(parameterized_trace_flow, trace_mode="auto", trace_combination_limit=20)
+    simple_graph, _calls = trace_workflow(parameterized_trace_flow, trace_mode="auto", trace_combination_limit=8)
+
+    assert "trace_combo_branch" in [node.node_id for node in combined_graph.nodes]
+    assert any("trace_mode='combined'" in warning for warning in combined_graph.warnings)
+    assert "trace_combo_branch" not in [node.node_id for node in simple_graph.nodes]
+    assert any("trace_mode='simple'" in warning for warning in simple_graph.warnings)

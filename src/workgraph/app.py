@@ -87,11 +87,18 @@ def create_app(
         return FileResponse(ui_dir / "index.html")
 
     @app.get("/api/workflows/{name}/graph", response_model=GraphSpec)
-    async def get_graph(name: str):
+    async def get_graph(name: str, trace_mode: str = "auto", trace_combination_limit: int = 100):
         workflow = workflow_map.get(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
-        graph, _calls = trace_workflow(workflow)
+        try:
+            graph, _calls = trace_workflow(
+                workflow,
+                trace_mode=trace_mode,
+                trace_combination_limit=trace_combination_limit,
+            )
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return graph
 
     @app.get("/api/workflows/{name}/versions", response_model=WorkflowVersionsResponse)
