@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from fastapi.testclient import TestClient
 from pydantic import Field
 
-from workgraph import create_app, node, workflow
+from workgraph import create_app, node, run_subgraph, workflow
 from workgraph.testing import MockLLM
 from workgraph.store import InMemoryStore
 
@@ -495,3 +495,47 @@ def test_run_errors_include_node_level_binding_failures():
     assert len(errors.json()) == 1
     assert errors.json()[0]["node_id"] == "downstream"
     assert errors.json()[0]["message"] == "'request'"
+
+
+def test_subgraph_runs_become_visible_as_real_workflows():
+    @node(id="child_upper")
+    async def child_upper(ctx, value: str):
+        return value.upper()
+
+    @workflow(name="child-app-flow")
+    def child_app_flow(items: list[str]):
+        return child_upper(value=items)
+
+    @node(id="parent_seed_subgraph")
+    async def parent_seed_subgraph(ctx, value: str):
+        return value
+
+    @workflow(name="parent-app-flow")
+    def parent_app_flow():
+        items = parent_seed_subgraph(value=["one", "two"])
+        return run_subgraph(workflow=child_app_flow, id="child_app_subgraph", kwargs={"items": items})
+
+    app = create_app(workflows=[parent_app_flow])
+    client = TestClient(app)
+
+    response = client.post("/api/workflows/parent-app-flow/runs?run_id=parent-app-run")
+    assert response.status_code == 200
+    wait_for_run_status(client, "parent-app-run", "completed")
+
+    run = client.get("/api/runs/parent-app-run")
+    assert run.status_code == 200
+    child_run_id = run.json()["nodes"]["child_app_subgraph_0"]["child_run_id"]
+    assert child_run_id is not None
+
+    workflows = client.get("/api/workflows")
+    assert workflows.status_code == 200
+    assert {workflow["name"] for workflow in workflows.json()} >= {"parent-app-flow", "child-app-flow"}
+
+    child_graph = client.get("/api/workflows/child-app-flow/graph")
+    assert child_graph.status_code == 200
+    assert [node["node_id"] for node in child_graph.json()["nodes"]] == ["child_upper"]
+
+    child_run = client.get(f"/api/runs/{child_run_id}")
+    assert child_run.status_code == 200
+    assert child_run.json()["parent_run_id"] == "parent-app-run"
+    assert child_run.json()["parent_node_id"] == "child_app_subgraph_0"

@@ -48,6 +48,16 @@ Shows coordination through the per-run scratchpad.
 
 This is the closest thing to a multi-agent collaboration pattern in the current v1 shape.
 
+### `example-subgraph-child` and `example-subgraph-parent`
+
+Shows workflow composition where a parent workflow launches a child workflow as a real linked run.
+
+- the parent graph renders the child workflow as one subgraph node
+- the child workflow still has its own run history, graph, trace spans, and artifact
+- the node inspector can navigate directly into the child run
+
+This is the reference example for reusable workflow components that should stay debuggable with the existing UI.
+
 ### `example-live-weather-capture`
 
 Shows a real-world workflow that crosses the boundary from in-memory orchestration into external effects.

@@ -15,4 +15,6 @@ Included workflows:
 - `example-conditional-review`: conditional routing with `trace_branches="all"`
 - `example-iterative-refinement`: loop modeling with a collapsed loop node in the graph
 - `example-scratchpad-collaboration`: scratchpad-backed multi-step coordination
+- `example-subgraph-child`: child workflow used as a reusable subgraph target
+- `example-subgraph-parent`: launches a child workflow as a real linked run
 - `example-live-weather-capture`: real network fetch plus real browser screenshot written to disk

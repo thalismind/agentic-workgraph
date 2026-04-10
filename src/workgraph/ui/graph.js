@@ -142,6 +142,8 @@ function ensureLiteGraphRegistration() {
       durationLine: "",
       progress: 0,
       loopIterations: null,
+      isSubgraph: false,
+      childRunId: null,
       streaming: false,
       selected: false,
       theme: statusTheme("pending", false),
@@ -194,6 +196,11 @@ function ensureLiteGraphRegistration() {
       ctx.font = "700 14px system-ui, sans-serif";
       ctx.fillStyle = "#1a1a1a";
       ctx.fillText("...", width - 34, 22, 20);
+    }
+    if (properties.isSubgraph) {
+      ctx.font = "700 13px system-ui, sans-serif";
+      ctx.fillStyle = properties.childRunId ? theme.boxcolor : theme.muted;
+      ctx.fillText("↗", width - 20, 42, 16);
     }
     ctx.restore();
   };
@@ -298,13 +305,15 @@ function buildNodeProperties(node) {
     durationLine: runtime?.duration_ms != null ? formatDuration(runtime.duration_ms) : "waiting",
     progress,
     loopIterations: node.loop_iterations ?? null,
+    isSubgraph: node.node_kind === "subgraph",
+    childRunId: runtime?.child_run_id ?? null,
     streaming,
     selected: state.selectedNodeId === node.instance_id,
     theme,
   };
 }
 
-export function renderGraph({ onSelectNode }) {
+export function renderGraph({ onSelectNode, onOpenSubgraph }) {
   const container = $("graph-canvas");
   const empty = $("graph-canvas-empty");
   const warningContainer = $("graph-warnings");
@@ -371,6 +380,11 @@ export function renderGraph({ onSelectNode }) {
     }
     if (nodeData.loop_iterations && nodeData.loop_iterations > 1) {
       graphNode.addInput("loop", "");
+    }
+    if (graphNode.properties.childRunId) {
+      graphNode.onDblClick = () => {
+        onOpenSubgraph?.(graphNode.properties.childRunId);
+      };
     }
     graphNode.setSize([220, Math.max(graphNode.size[1], 108)]);
     liteGraphGraph.add(graphNode);

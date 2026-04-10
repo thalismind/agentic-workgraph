@@ -152,6 +152,8 @@ The example library currently includes:
 - `example-conditional-review`
 - `example-iterative-refinement`
 - `example-scratchpad-collaboration`
+- `example-subgraph-child`
+- `example-subgraph-parent`
 - `example-live-weather-capture`
 
 Run the example app with:

@@ -475,7 +475,9 @@ function renderVersions(payload) {
     const node = template.content.firstElementChild.cloneNode(true);
     node.dataset.value = version.version;
     node.textContent = `${version.version}${version.is_current ? " current" : ""}`;
-    node.classList.toggle("active", state.selectedVersion === version.version);
+    const isSelected = state.selectedVersion === version.version;
+    node.classList.toggle("active", isSelected);
+    node.setAttribute("aria-pressed", String(isSelected));
     node.addEventListener("click", async () => {
       state.selectedVersion = state.selectedVersion === version.version ? null : version.version;
       state.selectedRunId = null;
@@ -524,6 +526,19 @@ function renderRuns(payload) {
     if (state.selectedRunId === run.run_id) node.classList.add("active");
     runsList.append(node);
   }
+}
+
+async function openRun(runId) {
+  closeLiveSocket();
+  stopTraceRefresh();
+  const run = await fetchJson(`/api/runs/${runId}`);
+  state.selectedWorkflow = run.workflow;
+  state.selectedVersion = null;
+  state.selectedRunId = runId;
+  state.selectedNodeId = null;
+  state.selectedItemIndex = 0;
+  renderWorkflows();
+  await loadWorkflowHistory();
 }
 
 function renderDetailItems(containerId, items, emptyText, mapFn) {
@@ -581,6 +596,9 @@ function renderGraph() {
       renderGraph();
       await loadNodeInspector();
     },
+    onOpenSubgraph: async (runId) => {
+      await openRun(runId);
+    },
   });
 }
 
@@ -594,17 +612,51 @@ function renderNodeInspector() {
   }
 
   const node = getNodeRuntime(state.selectedNodeId);
+  const graphNode = state.graph?.nodes?.find((entry) => entry.instance_id === state.selectedNodeId) ?? null;
   const status = node?.status ?? "pending";
   const counters = node?.counters;
-  summary.innerHTML = `
-    <strong>${state.selectedNodeId}</strong>
-    <br />
-    <span class="muted">Status:</span> ${status}
-    <br />
-    <span class="muted">Items:</span> ${counters?.total ?? 0} total · ${counters?.completed ?? 0} done
-    <br />
-    <span class="muted">Duration:</span> ${formatDuration(node?.duration_ms ?? null)}
-  `;
+  summary.replaceChildren();
+
+  const title = document.createElement("strong");
+  title.textContent = state.selectedNodeId;
+  summary.append(title, document.createElement("br"));
+
+  const statusLine = document.createElement("span");
+  statusLine.innerHTML = `<span class="muted">Status:</span> ${status}`;
+  summary.append(statusLine, document.createElement("br"));
+
+  const itemsLine = document.createElement("span");
+  itemsLine.innerHTML = `<span class="muted">Items:</span> ${counters?.total ?? 0} total · ${counters?.completed ?? 0} done`;
+  summary.append(itemsLine, document.createElement("br"));
+
+  const durationLine = document.createElement("span");
+  durationLine.innerHTML = `<span class="muted">Duration:</span> ${formatDuration(node?.duration_ms ?? null)}`;
+  summary.append(durationLine);
+
+  if (graphNode?.node_kind === "subgraph" && graphNode.subgraph_workflow) {
+    summary.append(document.createElement("br"));
+    const workflowLine = document.createElement("span");
+    workflowLine.innerHTML = `<span class="muted">Subgraph:</span> ${graphNode.subgraph_workflow}`;
+    summary.append(workflowLine);
+  }
+
+  if (node?.child_run_id) {
+    summary.append(document.createElement("br"));
+    const childRow = document.createElement("div");
+    childRow.className = "row";
+    const childLabel = document.createElement("span");
+    childLabel.className = "muted";
+    childLabel.textContent = "Child run:";
+    const childButton = document.createElement("button");
+    childButton.type = "button";
+    childButton.className = "refresh-button";
+    childButton.textContent = node.child_run_id;
+    childButton.addEventListener("click", async () => {
+      await openRun(node.child_run_id);
+    });
+    childRow.append(childLabel, childButton);
+    summary.append(childRow);
+  }
 
   renderDetailItems(
     "items-list",
@@ -855,6 +907,7 @@ function applyEvent(event) {
     const node = state.run.nodes[event.node_id];
     if (event.event === "node_status") node.status = event.status;
     if (event.event === "node_counters") node.counters = event.counters;
+    if (event.event === "node_subgraph") node.child_run_id = event.child_run_id;
   }
 
   if (event.event === "node_progress" && event.node_id === state.selectedNodeId && event.item_index != null) {

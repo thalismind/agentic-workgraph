@@ -10,7 +10,7 @@ from urllib.request import urlopen
 
 from pydantic import BaseModel
 
-from workgraph import node, workflow
+from workgraph import node, run_subgraph, workflow
 
 
 class Summary(BaseModel):
@@ -177,6 +177,39 @@ def scratchpad_collaboration():
     return final_recommendation(critique=critique)
 
 
+@node(id="subgraph_seed_topics")
+async def subgraph_seed_topics(ctx, topic: str):
+    return [f"{topic} tracing", f"{topic} debugger", f"{topic} artifact reuse"]
+
+
+@node(id="subgraph_expand_topic")
+async def subgraph_expand_topic(ctx, claim: str):
+    return f"{claim} stays visible because the child workflow is a real run"
+
+
+@node(id="subgraph_finalize_report")
+async def subgraph_finalize_report(ctx, line: str):
+    return f"subgraph report: {line}"
+
+
+@workflow(name="example-subgraph-child")
+def subgraph_child(claims: list[str]):
+    expanded = subgraph_expand_topic(claim=claims)
+    return subgraph_finalize_report(line=expanded)
+
+
+@node(id="subgraph_publish_report")
+async def subgraph_publish_report(ctx, line: str):
+    return f"published: {line}"
+
+
+@workflow(name="example-subgraph-parent")
+def subgraph_parent():
+    claims = subgraph_seed_topics(topic=["subgraph"])
+    report = run_subgraph(workflow=subgraph_child, id="run_child_subgraph", kwargs={"claims": claims})
+    return subgraph_publish_report(line=report)
+
+
 def _fetch_json(url: str) -> dict:
     with urlopen(url, timeout=20) as response:  # noqa: S310
         return json.loads(response.read().decode("utf-8"))
@@ -263,5 +296,7 @@ EXAMPLE_WORKFLOWS = [
     conditional_review,
     iterative_refinement,
     scratchpad_collaboration,
+    subgraph_child,
+    subgraph_parent,
     live_weather_capture,
 ]

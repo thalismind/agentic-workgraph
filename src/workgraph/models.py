@@ -51,6 +51,9 @@ class NodeSpec(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     concurrency: int | None = None
     output_schema: str | None = None
+    node_kind: str = "map"
+    subgraph_workflow: str | None = None
+    subgraph_version: str | None = None
     retries: int = 0
     item_retries: int = 0
     loop_iterations: int | None = None
@@ -196,6 +199,7 @@ class RunNodeState(BaseModel):
     output: list[Any] | None = None
     errors: list[str] = Field(default_factory=list)
     checkpoint: list[Any] | None = None
+    child_run_id: str | None = None
     items: list[ItemRecord] = Field(default_factory=list)
     loop_iteration: int = 0
     started_at: datetime | None = None
@@ -209,6 +213,8 @@ class RunRecord(BaseModel):
     run_id: str
     workflow: str
     version: str
+    parent_run_id: str | None = None
+    parent_node_id: str | None = None
     status: RunStatus = RunStatus.PENDING
     graph: GraphSpec
     workflow_args: tuple[Any, ...] = Field(default_factory=tuple)

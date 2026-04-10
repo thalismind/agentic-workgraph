@@ -53,6 +53,9 @@ class Context:
         emit_event: Callable[[dict[str, Any]], None] | None = None,
         record_stream: Callable[[str, int], dict[str, Any]] | None = None,
         report_progress: Callable[[float, str | None], Any] | None = None,
+        executor=None,
+        get_linked_child_run: Callable[[], str | None] | None = None,
+        link_child_run: Callable[[str], None] | None = None,
         tracer=None,
     ) -> None:
         self.run_id = run_id
@@ -66,6 +69,9 @@ class Context:
         self._emit_event = emit_event or (lambda _event: None)
         self._record_stream = record_stream or (lambda _token, _item_index: {})
         self._report_progress = report_progress
+        self.executor = executor
+        self._get_linked_child_run = get_linked_child_run or (lambda: None)
+        self._link_child_run = link_child_run or (lambda _child_run_id: None)
         self._tracer = tracer
 
     @staticmethod
@@ -166,3 +172,9 @@ class Context:
 
     async def has_errors(self) -> bool:
         return bool(self._errors)
+
+    def get_linked_child_run(self) -> str | None:
+        return self._get_linked_child_run()
+
+    def link_child_run(self, child_run_id: str) -> None:
+        self._link_child_run(child_run_id)

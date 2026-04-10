@@ -37,11 +37,19 @@ def create_app(
     app.state.executor = executor
     app.state.store = store
     ui_dir = Path(__file__).resolve().parent / "ui"
-    workflow_map = {workflow.name: workflow for workflow in workflows}
     for workflow in workflows:
         store.register_workflow(workflow)
 
     app.mount("/ui/static", StaticFiles(directory=ui_dir), name="ui-static")
+
+    def get_registered_workflow(name: str):
+        try:
+            return store.get_workflow(name)
+        except KeyError:
+            return None
+
+    def get_registered_workflows() -> list:
+        return sorted(store.workflows.values(), key=lambda workflow: workflow.name)
 
     def summarize_run(run: RunRecord) -> RunSummary:
         return RunSummary(
@@ -64,7 +72,7 @@ def create_app(
     @app.get("/api/workflows", response_model=list[WorkflowSummary])
     async def list_workflows():
         payload: list[WorkflowSummary] = []
-        for workflow in workflows:
+        for workflow in get_registered_workflows():
             workflow_runs = store.list_runs(workflow=workflow.name)
             latest_run = (
                 summarize_run(sorted(workflow_runs, key=lambda run: run.started_at)[-1])
@@ -88,7 +96,7 @@ def create_app(
 
     @app.get("/api/workflows/{name}/graph", response_model=GraphSpec)
     async def get_graph(name: str, trace_mode: str = "auto", trace_combination_limit: int = 100):
-        workflow = workflow_map.get(name)
+        workflow = get_registered_workflow(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         try:
@@ -98,12 +106,15 @@ def create_app(
                 trace_combination_limit=trace_combination_limit,
             )
         except (TypeError, ValueError) as exc:
+            workflow_runs = sorted(store.list_runs(workflow=name), key=lambda run: run.started_at, reverse=True)
+            if workflow_runs:
+                return workflow_runs[0].graph
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return graph
 
     @app.get("/api/workflows/{name}/versions", response_model=WorkflowVersionsResponse)
     async def get_versions(name: str):
-        workflow = workflow_map.get(name)
+        workflow = get_registered_workflow(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         current_version = workflow.version
@@ -122,7 +133,7 @@ def create_app(
 
     @app.get("/api/workflows/{name}/launch-spec")
     async def get_launch_spec(name: str):
-        workflow = workflow_map.get(name)
+        workflow = get_registered_workflow(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         signature = inspect.signature(workflow.func)
@@ -146,7 +157,7 @@ def create_app(
 
     @app.get("/api/workflows/{name}/runs", response_model=WorkflowRunsResponse)
     async def list_workflow_runs(name: str, version: str | None = None):
-        workflow = workflow_map.get(name)
+        workflow = get_registered_workflow(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         runs = sorted(
@@ -163,7 +174,7 @@ def create_app(
 
     @app.post("/api/workflows/{name}/runs", response_model=RunLaunchResponse)
     async def start_run(name: str, request: RunLaunchRequest | None = Body(default=None), run_id: str | None = None):
-        workflow = workflow_map.get(name)
+        workflow = get_registered_workflow(name)
         if workflow is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         request = request or RunLaunchRequest()

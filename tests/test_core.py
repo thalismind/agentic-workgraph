@@ -13,6 +13,7 @@ from workgraph import (
     get_version,
     list_versions,
     node,
+    run_subgraph,
     trace_workflow,
     workflow,
 )
@@ -259,6 +260,70 @@ async def test_loop_runs_share_one_display_node():
     assert run.nodes["looped_loop_0"].loop_iteration == 3
     assert len(run.nodes["looped_loop_0"].items) == 3
     assert run.outputs["looped_2"] == ["x"]
+
+
+@node(id="subgraph_prepare")
+async def subgraph_prepare(ctx, value: str):
+    return value.upper()
+
+
+@workflow(name="child-flow")
+def child_flow(items: list[str]):
+    return subgraph_prepare(value=items)
+
+
+@node(id="parent_seed")
+async def parent_seed(ctx, value: str):
+    return value
+
+
+@node(id="parent_finish")
+async def parent_finish(ctx, value: str):
+    return f"done:{value}"
+
+
+@workflow(name="parent-flow")
+def parent_flow():
+    items = parent_seed(value=["a", "b"])
+    child_items = run_subgraph(workflow=child_flow, id="child-subgraph", kwargs={"items": items})
+    return parent_finish(value=child_items)
+
+
+async def test_trace_workflow_includes_subgraph_node_metadata():
+    graph, calls = trace_workflow(parent_flow)
+
+    assert [node.node_id for node in graph.nodes] == ["parent_seed", "child-subgraph", "parent_finish"]
+    child_node = graph.nodes[1]
+    assert child_node.node_kind == "subgraph"
+    assert child_node.subgraph_workflow == "child-flow"
+    assert child_node.subgraph_version == child_flow.version
+    assert child_node.depends_on == ["parent_seed_0"]
+    assert calls[1].node_def.kind == "subgraph"
+    assert calls[1].node_def.subgraph_workflow.name == "child-flow"
+
+
+async def test_run_subgraph_creates_child_run_and_forwards_output():
+    store = InMemoryStore()
+    executor = Executor(store=store)
+
+    run = await executor.run(parent_flow, run_id="parent-run")
+
+    assert run.status == "completed"
+    assert run.outputs["parent_seed_0"] == ["a", "b"]
+    assert run.outputs["child-subgraph_0"] == ["A", "B"]
+    assert run.outputs["parent_finish_0"] == ["done:A", "done:B"]
+
+    child_run_id = run.nodes["child-subgraph_0"].child_run_id
+    assert child_run_id is not None
+    child_run = store.get_run(child_run_id)
+    assert child_run.workflow == "child-flow"
+    assert child_run.parent_run_id == "parent-run"
+    assert child_run.parent_node_id == "child-subgraph_0"
+    assert child_run.status == "completed"
+    assert child_run.final_output == ["A", "B"]
+
+    child_runs = store.list_runs(workflow="child-flow")
+    assert [child.run_id for child in child_runs] == [child_run_id]
 
 
 class TraceFlavor(str, Enum):

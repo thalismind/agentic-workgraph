@@ -245,6 +245,12 @@ h3 {
   top: 24px;
 }
 
+.workflows-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 48px);
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -273,6 +279,7 @@ h3 {
 
 .workflow-search {
   margin-bottom: 14px;
+  flex: 0 0 auto;
 }
 
 .workflow-search-input,
@@ -468,7 +475,10 @@ h3 {
 .version-chip.active {
   background: var(--accent);
   color: #f5fffb;
-  border-color: transparent;
+  border-color: rgba(0, 229, 176, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 3px rgba(0, 229, 176, 0.18);
 }
 
 .status-pill {
@@ -496,6 +506,13 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+#workflows-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .artifact-preview,
@@ -979,8 +996,16 @@ h3 {
     position: static;
   }
 
+  .workflows-panel {
+    max-height: none;
+  }
+
   .runs-list {
     max-height: none;
+  }
+
+  #workflows-list {
+    overflow: visible;
   }
 }
 

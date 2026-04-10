@@ -2,11 +2,11 @@ from pydantic import BaseModel
 
 from workgraph import create_app, node, workflow
 from workgraph.models import StreamEnvelope
-from examples.workflows import iterative_refinement, serial_progress
+from examples.workflows import iterative_refinement, serial_progress, subgraph_parent
 
 
 @node(id="hello")
-async def hello(name: str, ctx):
+async def hello(ctx, name: str):
     return f"hello {name}"
 
 
@@ -21,12 +21,12 @@ class Summary(BaseModel):
 
 
 @node(id="fetch_topics")
-async def fetch_topics(seed: str, ctx):
+async def fetch_topics(ctx, seed: str):
     return [f"{seed} systems", f"{seed} orchestration", f"{seed} tracing"]
 
 
 @node(id="summarize_topic", output_schema=Summary, concurrency=2)
-async def summarize_topic(topic: str, ctx):
+async def summarize_topic(ctx, topic: str):
     async with ctx.progress(desc="summarizing") as progress:
         await progress.update(0.35)
         result = await ctx.llm(prompt=f"Summarize {topic}", response_model=Summary, stream=True)
@@ -35,7 +35,7 @@ async def summarize_topic(topic: str, ctx):
 
 
 @node(id="synthesize_report")
-async def synthesize_report(summary: Summary, ctx):
+async def synthesize_report(ctx, summary: Summary):
     return f"{summary.summary} ({summary.confidence:.2f})"
 
 
@@ -65,5 +65,5 @@ async def demo_llm(*, prompt: str, node_id: str, node_instance_id: str, stream: 
     return response
 
 
-app = create_app(workflows=[hello_flow, research_demo, iterative_refinement, serial_progress])
+app = create_app(workflows=[hello_flow, research_demo, iterative_refinement, serial_progress, subgraph_parent])
 app.state.executor.llm_callable = demo_llm

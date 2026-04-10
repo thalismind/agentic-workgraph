@@ -343,6 +343,8 @@ def _format_validation_feedback(exc: ValidationError) -> str:
 class NodeDefinition:
     func: Callable[..., Awaitable[Any]]
     node_id: str
+    kind: str = "map"
+    subgraph_workflow: WorkflowDefinition | None = None
     retries: int = 0
     item_retries: int = 0
     timeout: int | None = None
@@ -586,6 +588,7 @@ def compute_workflow_version(workflow_def: WorkflowDefinition) -> str:
             "otel_service_name": workflow_def.otel_service_name,
         },
         "nodes": sorted(_referenced_node_payloads(workflow_def.func), key=lambda item: item["node_id"]),
+        "subgraphs": _referenced_workflow_payloads(workflow_def.func),
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     return digest[:12]
@@ -600,6 +603,11 @@ def _referenced_node_payloads(func: Callable[..., Any]) -> list[dict[str, Any]]:
         nodes.append(
             {
                 "node_id": node_def.node_id,
+                "kind": node_def.kind,
+                "subgraph_workflow": node_def.subgraph_workflow.name if node_def.subgraph_workflow is not None else None,
+                "subgraph_version": (
+                    node_def.subgraph_workflow.version if node_def.subgraph_workflow is not None else None
+                ),
                 "source": inspect.getsource(node_def.func),
                 "retries": node_def.retries,
                 "item_retries": node_def.item_retries,
@@ -610,6 +618,22 @@ def _referenced_node_payloads(func: Callable[..., Any]) -> list[dict[str, Any]]:
             }
         )
     return nodes
+
+
+def _referenced_workflow_payloads(func: Callable[..., Any]) -> list[dict[str, Any]]:
+    closure_vars = inspect.getclosurevars(func)
+    workflows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for value in [*closure_vars.globals.values(), *closure_vars.nonlocals.values()]:
+        workflow_def = getattr(value, "_workflow_def", None)
+        if workflow_def is None:
+            continue
+        key = (workflow_def.name, workflow_def.version)
+        if key in seen:
+            continue
+        seen.add(key)
+        workflows.append({"name": workflow_def.name, "version": workflow_def.version})
+    return sorted(workflows, key=lambda item: item["name"])
 
 
 def _trace_single_workflow(
@@ -688,6 +712,13 @@ def _build_graph_spec(workflow_def: WorkflowDefinition, trace_state: TraceState)
                 depends_on=[],
                 concurrency=call.node_def.concurrency,
                 output_schema=_schema_name(call.node_def.output_schema),
+                node_kind=call.node_def.kind,
+                subgraph_workflow=(
+                    call.node_def.subgraph_workflow.name if call.node_def.subgraph_workflow is not None else None
+                ),
+                subgraph_version=(
+                    call.node_def.subgraph_workflow.version if call.node_def.subgraph_workflow is not None else None
+                ),
                 retries=call.node_def.retries,
                 item_retries=call.node_def.item_retries,
                 loop_member_ids=[call.instance_id],
@@ -779,6 +810,9 @@ async def _run_one_item(
     counters: NodeCounters,
     emit_event,
     record_stream,
+    executor,
+    get_linked_child_run,
+    link_child_run,
     tracer,
 ) -> Any:
     attempts = node_def.item_retries + 1
@@ -843,6 +877,9 @@ async def _run_one_item(
                         emit_event=emit_event,
                         record_stream=record_stream,
                         report_progress=report_progress,
+                        executor=executor,
+                        get_linked_child_run=get_linked_child_run,
+                        link_child_run=link_child_run,
                         tracer=tracer,
                     )
                     item_param = _item_param_name(node_def.signature)
@@ -1011,6 +1048,7 @@ async def _run_node(
     stream_max_messages: int,
     stream_ttl_seconds: int,
     store: InMemoryStore,
+    executor,
     tracer,
 ) -> list[Any]:
     node_def = call.node_def
@@ -1035,6 +1073,23 @@ async def _run_node(
 
         return record_stream
 
+    def get_linked_child_run() -> str | None:
+        return node_state.child_run_id
+
+    def link_child_run(child_run_id: str) -> None:
+        node_state.child_run_id = child_run_id
+        emit_event(
+            _event(
+                "node_subgraph",
+                run_id,
+                node_id=call.display_id,
+                child_run_id=child_run_id,
+                child_workflow=(
+                    node_def.subgraph_workflow.name if node_def.subgraph_workflow is not None else None
+                ),
+            )
+        )
+
     if node_def.concurrency == 1:
         results = []
         for index, item in enumerate(items):
@@ -1053,6 +1108,9 @@ async def _run_node(
                     counters=node_state.counters,
                     emit_event=emit_event,
                     record_stream=make_stream_recorder(item_offset + index),
+                    executor=executor,
+                    get_linked_child_run=get_linked_child_run,
+                    link_child_run=link_child_run,
                     tracer=tracer,
                 )
             )
@@ -1076,6 +1134,9 @@ async def _run_node(
                 counters=node_state.counters,
                 emit_event=emit_event,
                 record_stream=make_stream_recorder(item_offset + index),
+                executor=executor,
+                get_linked_child_run=get_linked_child_run,
+                link_child_run=link_child_run,
                 tracer=tracer,
             )
         async with semaphore:
@@ -1093,6 +1154,9 @@ async def _run_node(
                 counters=node_state.counters,
                 emit_event=emit_event,
                 record_stream=make_stream_recorder(item_offset + index),
+                executor=executor,
+                get_linked_child_run=get_linked_child_run,
+                link_child_run=link_child_run,
                 tracer=tracer,
             )
 
@@ -1136,9 +1200,18 @@ class Executor:
         workflow_def: WorkflowDefinition,
         *args: Any,
         run_id: str | None = None,
+        parent_run_id: str | None = None,
+        parent_node_id: str | None = None,
         **kwargs: Any,
     ) -> RunRecord:
-        return await self._run_workflow(workflow_def, args=args, kwargs=kwargs, run_id_override=run_id)
+        return await self._run_workflow(
+            workflow_def,
+            args=args,
+            kwargs=kwargs,
+            run_id_override=run_id,
+            parent_run_id=parent_run_id,
+            parent_node_id=parent_node_id,
+        )
 
     async def launch(
         self,
@@ -1205,6 +1278,8 @@ class Executor:
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
         run_id_override: str | None = None,
+        parent_run_id: str | None = None,
+        parent_node_id: str | None = None,
     ) -> RunRecord:
         self.store.register_workflow(workflow_def)
         graph, _calls = trace_workflow(workflow_def, *args, **kwargs)
@@ -1214,6 +1289,8 @@ class Executor:
             run_id=run_id,
             workflow=workflow_def.name,
             version=workflow_def.version,
+            parent_run_id=parent_run_id,
+            parent_node_id=parent_node_id,
             status=RunStatus.PENDING,
             graph=graph,
             workflow_args=args,
@@ -1231,6 +1308,8 @@ class Executor:
         kwargs: dict[str, Any],
         existing_run: RunRecord | None = None,
         run_id_override: str | None = None,
+        parent_run_id: str | None = None,
+        parent_node_id: str | None = None,
     ) -> RunRecord:
         self.store.register_workflow(workflow_def)
         self.telemetry = Telemetry(
@@ -1241,7 +1320,14 @@ class Executor:
         tracer = self.telemetry.get_tracer()
         graph, calls = trace_workflow(workflow_def, *args, **kwargs)
         if existing_run is None:
-            record = self._create_run_record(workflow_def, args=args, kwargs=kwargs, run_id_override=run_id_override)
+            record = self._create_run_record(
+                workflow_def,
+                args=args,
+                kwargs=kwargs,
+                run_id_override=run_id_override,
+                parent_run_id=parent_run_id,
+                parent_node_id=parent_node_id,
+            )
             run_id = record.run_id
         else:
             run_id = existing_run.run_id
@@ -1306,6 +1392,7 @@ class Executor:
                         stream_max_messages=workflow_def.stream_max_messages,
                         stream_ttl_seconds=workflow_def.stream_ttl_hours * 3600,
                         store=self.store,
+                        executor=self,
                         tracer=tracer,
                     )
                     outputs[call.instance_id] = result
@@ -1380,6 +1467,71 @@ async def _default_llm(*, prompt: str, node_id: str, **kwargs: Any) -> Any:
 
 def merge(a: list[Any], b: list[Any]) -> list[Any]:
     return [*a, *b]
+
+
+def run_subgraph(
+    *,
+    workflow: WorkflowDefinition,
+    id: str | None = None,
+    args: tuple[Any, ...] | list[Any] | None = None,
+    kwargs: dict[str, Any] | None = None,
+) -> NodeProxy:
+    trace_state = _TRACE_STATE.get()
+    if trace_state is None:
+        raise RuntimeError("run_subgraph() can only be used inside a traced @workflow definition")
+
+    async def _subgraph_runner(ctx: Context, subgraph_call: dict[str, Any]) -> list[Any]:
+        if ctx.executor is None:
+            raise RuntimeError("run_subgraph requires an executor-bound context")
+
+        child_args = tuple(subgraph_call.get("args", []))
+        child_kwargs = dict(subgraph_call.get("kwargs", {}))
+        existing_child_run_id = ctx.get_linked_child_run()
+        if existing_child_run_id:
+            try:
+                existing_child_run = ctx.executor.store.get_run(existing_child_run_id)
+            except KeyError:
+                existing_child_run = None
+            else:
+                if (
+                    existing_child_run.workflow == workflow.name
+                    and existing_child_run.version == workflow.version
+                    and existing_child_run.status == RunStatus.COMPLETED
+                ):
+                    return existing_child_run.final_output or []
+
+        child_record = ctx.executor._create_run_record(
+            workflow,
+            args=child_args,
+            kwargs=child_kwargs,
+            parent_run_id=ctx.run_id,
+            parent_node_id=ctx.node_id,
+        )
+        ctx.link_child_run(child_record.run_id)
+        child_run = await ctx.executor._run_workflow(
+            workflow,
+            args=child_args,
+            kwargs=child_kwargs,
+            existing_run=child_record,
+        )
+        if child_run.status is not RunStatus.COMPLETED:
+            raise RuntimeError(
+                f"Subgraph workflow '{workflow.name}' failed in child run '{child_run.run_id}'"
+            )
+        return child_run.final_output or []
+
+    node_def = NodeDefinition(
+        func=_subgraph_runner,
+        node_id=id or f"subgraph_{workflow.name}",
+        kind="subgraph",
+        subgraph_workflow=workflow,
+        concurrency=1,
+    )
+    payload = {
+        "args": list(args or ()),
+        "kwargs": dict(kwargs or {}),
+    }
+    return trace_state.register_call(node_def, node_def.bind(subgraph_call=[payload]))
 
 
 async def race(tasks: list[Awaitable[Any]]) -> Any:

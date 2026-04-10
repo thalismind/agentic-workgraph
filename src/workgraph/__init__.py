@@ -1,6 +1,6 @@
 from .app import create_app
 from .context import Context
-from .core import Executor, get_version, list_versions, merge, node, race, resume, trace_workflow, workflow
+from .core import Executor, get_version, list_versions, merge, node, race, resume, run_subgraph, trace_workflow, workflow
 from .errors import VersionMismatchError
 from .ollama import create_ollama_cloud_llm, create_ollama_llm
 from .store import RedisStore, create_store
@@ -45,6 +45,7 @@ __all__ = [
     "record_trace",
     "replay_trace",
     "resume",
+    "run_subgraph",
     "run_test",
     "run_test_node",
     "test_context",
