@@ -23,6 +23,8 @@ You do not hand-author a graph file. You write:
 
 The runtime traces the workflow into a graph, executes mapped list work, records run state, emits live events, and exposes everything through FastAPI and `/ui`.
 
+Workflows can also compose other workflows with `run_subgraph(...)` when a reusable child flow should remain debuggable as its own run instead of being flattened into ordinary nodes.
+
 ## Authoring Rules
 
 Follow these rules unless there is a strong reason not to:
@@ -135,6 +137,38 @@ Rules:
 - make each iteration explicit
 - avoid unbounded “retry until it works” prompt logic
 
+## Subgraph Composition
+
+Use `run_subgraph(...)` when a workflow should call another workflow as a reusable unit.
+
+```python
+from workgraph import run_subgraph
+
+
+@workflow(name="parent-flow")
+def parent_flow():
+    prepared = prepare_inputs(topic=["subgraphs"])
+    return run_subgraph(
+        workflow=child_flow,
+        id="child_flow_run",
+        kwargs={"claims": prepared},
+    )
+```
+
+Current subgraph semantics:
+
+- the parent graph shows one subgraph node
+- the child workflow executes as a real linked run
+- the parent node output becomes the child run's `final_output`
+- the UI can navigate from the parent node into the child run
+
+Authoring rules for subgraphs:
+
+- Keep data mapping in ordinary Python nodes before or after `run_subgraph(...)`.
+- Pass the whole prepared list payload into the child workflow; do not expect per-item child runs.
+- Use subgraphs for reusable coordination, not for hiding simple linear steps that should stay visible in one graph.
+- Give the subgraph node an explicit `id=` so the parent graph stays readable.
+
 ## LLM Usage
 
 Use `ctx.llm(...)` inside a node when the model call is part of the workflow step.
@@ -228,6 +262,7 @@ Checklist:
 - the workflow appears under `/api/workflows`
 - the graph shape looks correct
 - node IDs are readable
+- subgraph nodes, if any, show the title-bar indicator and open the child run
 - progress updates show up while the run is live
 - final artifact highlights the useful output
 - trace and item records are understandable

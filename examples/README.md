@@ -16,5 +16,5 @@ Included workflows:
 - `example-iterative-refinement`: loop modeling with a collapsed loop node in the graph
 - `example-scratchpad-collaboration`: scratchpad-backed multi-step coordination
 - `example-subgraph-child`: child workflow used as a reusable subgraph target
-- `example-subgraph-parent`: launches a child workflow as a real linked run
+- `example-subgraph-parent`: launches a child workflow as a real linked run with title-bar navigation in the UI
 - `example-live-weather-capture`: real network fetch plus real browser screenshot written to disk

@@ -28,6 +28,16 @@ For observability, prefer `trace_branches="all"` when branch visibility matters 
 
 Use a bounded loop when the same operation should improve the result over several passes. The runtime now models repeated self-dependent calls as one loop node in the graph while preserving per-iteration execution internally.
 
+### Subgraph composition
+
+Use `run_subgraph(...)` when one workflow should orchestrate another workflow as a reusable component.
+
+- the parent graph shows one subgraph node
+- the child workflow gets its own real run record, history, traces, and artifact
+- downstream parent nodes receive the child run's final output
+
+This is the right pattern when the child flow is substantial enough to deserve its own debugger surface. If the work would be clearer as a few ordinary nodes in one graph, keep it flat.
+
 ### Scratchpad collaboration
 
 Use `ctx.scratchpad` when steps need shared run-scoped state that should not be passed directly through every function signature.
@@ -57,5 +67,6 @@ The `example-live-weather-capture` workflow is the reference pattern for combini
 - Keep node functions scalar. Let the runtime handle list mapping.
 - Use output schemas on any node where an LLM is producing contract-shaped data.
 - Prefer bounded loops and explicit branches over hidden retry logic in prompts.
+- Use subgraphs for reusable workflow-sized coordination, with explicit pre/post mapping nodes when shapes differ.
 - Treat the UI as a debugger for coordination structure, not just a run log.
 - Reach for Redis when you want state durability or cross-process visibility.

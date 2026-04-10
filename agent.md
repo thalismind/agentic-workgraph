@@ -56,6 +56,28 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. Workgraph-Specific Guidance
+
+When changing `agentic-workgraph`, preserve the code-first workflow model:
+
+- Keep mapping and adaptation logic in normal Python nodes. Do not invent a generic mapping DSL.
+- When composing workflows, prefer `run_subgraph(...)` so child workflows remain real debuggable runs.
+- Treat subgraphs as workflow-sized building blocks. If the behavior is clearer as a few flat nodes, keep it flat.
+- Verify debugger affordances after UI changes. For subgraphs, that includes the node indicator and navigation into the child run.
+
+---
+
+## Workgraph Server Launch — CRITICAL
+
+**Every single time** you need to run the workgraph server, use **only** the launch script:
+
+```bash
+cd /workspace/data/coding/data-thalis/workflows
+./run-server-redis.sh > /tmp/workgraph.log 2>&1 &
+```
+
+**NEVER** use direct uvicorn commands or other methods. The launch script configures the required environment.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

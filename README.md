@@ -126,6 +126,31 @@ def hello_flow():
 
 Node functions are scalar. The runtime handles list-shaped execution, concurrency, progress accounting, retries, validation, tracing, and storage.
 
+### Subgraphs
+
+Workflows can also launch other workflows with `run_subgraph(...)`.
+
+```python
+from workgraph import node, run_subgraph, workflow
+
+
+@workflow(name="child-flow")
+def child_flow(claims: list[str]):
+    return expand_claim(claim=claims)
+
+
+@workflow(name="parent-flow")
+def parent_flow():
+    claims = seed_claims(topic=["subgraphs"])
+    return run_subgraph(
+        workflow=child_flow,
+        id="child_flow_run",
+        kwargs={"claims": claims},
+    )
+```
+
+`run_subgraph(...)` treats the child workflow as one node in the parent graph, but the child execution is recorded as a real linked run with its own history, trace spans, graph, and final artifact. In the UI, subgraph nodes show a title-bar indicator and can navigate directly into the child run.
+
 ## Project Layout
 
 - [`src/workgraph`](src/workgraph): runtime, API, storage, tracing, testing helpers
@@ -142,6 +167,7 @@ Node functions are scalar. The runtime handles list-shaped execution, concurrenc
 - [`docs/downstream-integration.md`](docs/downstream-integration.md): how to embed project-local workflow packages with shared app wiring, fixtures, prompts, and deployment
 - [`docs/example-library.md`](docs/example-library.md): what each example workflow demonstrates
 - [`docs/agentic-patterns.md`](docs/agentic-patterns.md): guidance on pipeline, fan-out, branching, loops, scratchpads, and recovery
+- [`agent.md`](agent.md): contributor guidelines for making surgical changes in this repo
 
 ## Example Library
 
