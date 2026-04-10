@@ -244,8 +244,9 @@ function ensureCanvas(onSelectNode) {
     const canvas = $("graph-canvas-surface");
     liteGraphCanvas = new LGraphCanvas(canvas, liteGraphGraph, { skip_rendering: false, autoresize: false });
     liteGraphCanvas.background_image = null;
-    liteGraphCanvas.clear_background_color = "#dfe8ea";
+    liteGraphCanvas.clear_background_color = null;
     liteGraphCanvas.render_shadows = false;
+    liteGraphCanvas.render_canvas_border = false;
     liteGraphCanvas.show_info = false;
     liteGraphCanvas.allow_dragcanvas = true;
     liteGraphCanvas.allow_dragnodes = true;
